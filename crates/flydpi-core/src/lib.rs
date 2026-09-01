@@ -1,39 +1,49 @@
 mod model;
+mod wfp;
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
+pub use wfp::{FilterId, WfpState};
 
-static INITIALIZED: AtomicBool = AtomicBool::new(false);
+static STATE: OnceLock<Mutex<WfpState>> = OnceLock::new();
 
-/// Initializes the core lifecycle. This phase intentionally installs no
-/// packet-rewriting policy.
-#[no_mangle]
-pub extern "C" fn init_wfp_filter() -> i32 {
-    INITIALIZED.store(true, Ordering::SeqCst);
-    0
+fn state() -> &'static Mutex<WfpState> {
+    STATE.get_or_init(|| Mutex::new(WfpState::default()))
 }
 
-/// Validates a policy identifier and records that the core is initialized.
-/// Packet transformation is intentionally not enabled by this foundation.
+/// Initializes the core lifecycle. This foundation does not install packet
+/// rewriting or traffic-disruption rules.
+#[no_mangle]
+pub extern "C" fn init_wfp_filter() -> i32 {
+    match state().lock() {
+        Ok(guard) => guard.initialize().map(|_| 0).unwrap_or(-1),
+        Err(_) => -4,
+    }
+}
+
+/// Validates a policy identifier. Packet transformation is not enabled by
+/// this foundation build.
 #[no_mangle]
 pub extern "C" fn apply_tactic(tactic_id: u32, handle: *mut c_void) -> i32 {
     if handle.is_null() {
         return -2;
     }
-    if !INITIALIZED.load(Ordering::SeqCst) {
-        return -3;
+    if !matches!(tactic_id, 1..=5 | 99) {
+        return -10;
     }
-    match tactic_id {
-        1..=5 | 99 => 0,
-        _ => -10,
+    if state().lock().is_err() {
+        return -4;
     }
+    0
 }
 
 /// Idempotently clears FlyDPI-owned state.
 #[no_mangle]
 pub extern "C" fn reset_filters() -> i32 {
-    INITIALIZED.store(false, Ordering::SeqCst);
-    0
+    match state().lock() {
+        Ok(guard) => guard.reset().map(|_| 0).unwrap_or(-1),
+        Err(_) => -4,
+    }
 }
