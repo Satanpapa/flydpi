@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <fwpmu.h>
+#include "wfp_event_snapshot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,6 +20,11 @@ void flydpi_wfp_observer_stop(FlyDpiWfpObserver* observer);
 // Returns the number of events observed since start.
 unsigned long long flydpi_wfp_observer_event_count(
     const FlyDpiWfpObserver* observer);
+
+// Copies the most recent normalized event into a stable ABI structure.
+DWORD flydpi_wfp_observer_latest(
+    const FlyDpiWfpObserver* observer,
+    FlyDpiEventSnapshot* out_snapshot);
 
 #ifdef __cplusplus
 }
