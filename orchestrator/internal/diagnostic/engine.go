@@ -53,16 +53,14 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 		dohIPs, dohErr := lookupAnyDoH(ctxDNS, doh.http, target)
 		cancel()
 		if sysErr == nil { dnsMap[target] = systemIPs }
-		if sysErr != nil || dohErr != nil || (sysErr == nil && dohErr == nil && addressSetsDiffer(systemIPs, dohIPs)) {
-			dnsStageFailed = true
-		}
+		if sysErr == nil && dohErr == nil && addressSetsDiffer(systemIPs, dohIPs) { dnsStageFailed = true }
 	}
 	report.Stages[0].Status = StagePassed
 	report.Stages[0].Progress = 100
 	if dnsStageFailed {
 		report.Features.PoisoningDetected = true
 		report.Stages[0].Status = StageFailed
-		report.Stages[0].Summary = "Обнаружено расхождение DNS-ответов или ошибка независимого резолвера"
+		report.Stages[0].Summary = "Системный DNS расходится с независимым DoH-резолвером"
 	} else {
 		report.Stages[0].Summary = "Системный DNS согласуется с независимым DoH-резолвером"
 	}
@@ -73,7 +71,7 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 	for _, r := range results {
 		tr := TargetResult{Target: r.Target, TCPConnected: r.TCPConnected, TLSHandshake: r.TLSHandshake, Latency: r.Latency}
 		tr.DNSOK = len(dnsMap[r.Target]) > 0
-		if !tr.DNSOK { tr.DNSMismatch = dnsStageFailed }
+		tr.DNSMismatch = dnsStageFailed && tr.DNSOK
 		if !r.TCPConnected {
 			failTCP++
 			tr.ErrorClass = classifyError(r.Error)
@@ -97,7 +95,7 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 	report.Stages[2].Summary = fmt.Sprintf("TLS: %d из %d успешно", len(results)-failTLS, len(results))
 	report.Stages[3].Status = StagePassed
 	report.Stages[3].Progress = 100
-	report.Stages[3].Summary = "WFP event stream подключён; корреляция без вмешательства в трафик"
+	report.Stages[3].Summary = "WFP telemetry доступна без изменения сетевого трафика"
 	report.FinishedAt = time.Now()
 	report.Severity, report.Title, report.Explanation, report.RecommendedAction = summarize(report)
 	return report
@@ -105,7 +103,7 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 
 func lookupAnyDoH(ctx context.Context, client interface{ Do(*http.Request) (*http.Response, error) }, host string) ([]net.IP, error) {
 	for _, endpoint := range defaultDoHEndpoints {
-		ips, err := lookupDoH(ctx, client, endpoint, host)
+		ips, err := lookupDoH(ctx, client.(*http.Client), endpoint, host)
 		if err == nil && len(ips) > 0 { return ips, nil }
 	}
 	return nil, fmt.Errorf("all DoH endpoints failed")
@@ -113,18 +111,16 @@ func lookupAnyDoH(ctx context.Context, client interface{ Do(*http.Request) (*htt
 
 func stageForFailures(failures, total int) StageStatus {
 	if total == 0 || failures == 0 { return StagePassed }
-	if failures == total { return StageFailed }
 	return StageFailed
 }
 
 func summarize(r DiagnosticReport) (Severity, string, string, string) {
 	failTCP, failTLS := 0, 0
 	for _, x := range r.ProbeResults { if !x.TCPConnected { failTCP++ }; if x.TCPConnected && !x.TLSHandshake { failTLS++ } }
-	if r.Features.PoisoningDetected { return SeverityCritical, "Обнаружена DNS-аномалия", "Системные DNS-ответы расходятся с независимым DoH-резолвером. Это требует отдельной проверки и не доказывает DPI само по себе.", "Открыть подробности DNS" }
+	if r.Features.PoisoningDetected { return SeverityCritical, "Обнаружена DNS-аномалия", "Системные DNS-ответы расходятся с независимым DoH-резолвером. Это повод проверить DNS-инфраструктуру; само по себе расхождение не доказывает DPI.", "Открыть подробности DNS" }
 	if failTCP == 0 && failTLS == 0 { return SeverityOK, "Сеть работает нормально", "DNS, TCP и TLS базовые проверки завершились без явных признаков блокировки.", "Ничего не менять" }
-	if r.Features.RSTDetected { return SeverityWarning, "Обнаружена сетевая аномалия", "Во время части TCP-проверок наблюдалось соединение с последующим reset. Нужна корреляция с WFP и повторная проверка.", "Открыть подробную диагностику" }
-	if failTCP > 0 || failTLS > 0 { return SeverityWarning, "Часть проверок не пройдена", "Некоторые цели недоступны или TLS handshake завершился ошибкой. Само по себе это не подтверждает DPI-блокировку.", "Показать детали" }
-	return SeverityOK, "Готово", "Диагностика завершена.", "Ничего не менять"
+	if r.Features.RSTDetected { return SeverityWarning, "Обнаружена сетевая аномалия", "Во время части TCP-проверок наблюдался reset. Нужна корреляция с телеметрией WFP и повторная проверка.", "Открыть подробную диагностику" }
+	return SeverityWarning, "Часть проверок не пройдена", "Некоторые цели недоступны или TLS handshake завершился ошибкой. По одному симптому нельзя уверенно подтвердить DPI-блокировку.", "Показать детали"
 }
 
 func classifyError(s string) string {
