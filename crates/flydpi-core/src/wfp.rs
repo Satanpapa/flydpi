@@ -4,44 +4,44 @@
 //! install traffic-transforming callouts. Packet mutation requires a validated
 //! kernel driver and the correct WFP layer/injection path.
 
-use std::collections::HashSet;
-use std::sync::Mutex;
+use std::collections::BTreeSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FilterId(pub u64);
 
 #[derive(Debug, Default)]
 pub struct WfpState {
-    filters: Mutex<HashSet<FilterId>>,
-    initialized: Mutex<bool>,
+    initialized: bool,
+    filters: BTreeSet<FilterId>,
+    next_id: u64,
 }
 
 impl WfpState {
-    pub fn initialize(&self) -> Result<(), &'static str> {
-        let mut initialized = self.initialized.lock().map_err(|_| "state poisoned")?;
-        *initialized = true;
+    pub fn initialize(&mut self) -> Result<(), &'static str> {
+        if self.initialized { return Ok(()); }
+        self.initialized = true;
+        self.next_id = 1;
         Ok(())
     }
 
-    pub fn register_owned_filter(&self, id: FilterId) -> Result<(), &'static str> {
-        let initialized = self.initialized.lock().map_err(|_| "state poisoned")?;
-        if !*initialized {
-            return Err("WFP engine is not initialized");
-        }
-        drop(initialized);
-        self.filters.lock().map_err(|_| "state poisoned")?.insert(id);
+    pub fn initialized(&self) -> bool { self.initialized }
+
+    pub fn register_owned_filter(&mut self) -> Result<FilterId, &'static str> {
+        if !self.initialized { return Err("WFP_NOT_INITIALIZED"); }
+        let id = FilterId(self.next_id);
+        self.next_id = self.next_id.checked_add(1).ok_or("FILTER_ID_EXHAUSTED")?;
+        self.filters.insert(id);
+        Ok(id)
+    }
+
+    pub fn remove_owned_filter(&mut self, id: FilterId) -> bool { self.filters.remove(&id) }
+    pub fn owned_filter_count(&self) -> usize { self.filters.len() }
+
+    pub fn reset(&mut self) -> Result<(), &'static str> {
+        self.filters.clear();
+        self.initialized = false;
+        self.next_id = 0;
         Ok(())
-    }
-
-    pub fn reset(&self) -> Result<Vec<FilterId>, &'static str> {
-        let mut filters = self.filters.lock().map_err(|_| "state poisoned")?;
-        let removed = filters.drain().collect();
-        *self.initialized.lock().map_err(|_| "state poisoned")? = false;
-        Ok(removed)
-    }
-
-    pub fn owned_filter_count(&self) -> usize {
-        self.filters.lock().map(|f| f.len()).unwrap_or(0)
     }
 }
 
@@ -51,13 +51,19 @@ mod tests {
 
     #[test]
     fn lifecycle_is_idempotent() {
-        let state = WfpState::default();
+        let mut state = WfpState::default();
         state.initialize().unwrap();
         state.initialize().unwrap();
-        state.register_owned_filter(FilterId(1)).unwrap();
+        let id = state.register_owned_filter().unwrap();
         assert_eq!(state.owned_filter_count(), 1);
-        let removed = state.reset().unwrap();
-        assert_eq!(removed, vec![FilterId(1)]);
-        assert_eq!(state.owned_filter_count(), 0);
+        assert!(state.remove_owned_filter(id));
+        state.reset().unwrap();
+        assert!(!state.initialized());
+    }
+
+    #[test]
+    fn cannot_register_before_init() {
+        let mut state = WfpState::default();
+        assert_eq!(state.register_owned_filter(), Err("WFP_NOT_INITIALIZED"));
     }
 }
