@@ -55,7 +55,7 @@ func equalStrings(a, b []string) bool {
 func looksLikeNXDOMAIN(err error) bool { return strings.Contains(strings.ToLower(err.Error()), "no such host") }
 
 var defaultDoHEndpoints = []string{
-	"https://1.1.1.1/dns-query",
+	"https://cloudflare-dns.com/dns-query", // Cloudflare DoH service (1.1.1.1)
 	"https://dns.quad9.net/dns-query",
 	"https://dns.google/resolve",
 }
