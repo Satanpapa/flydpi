@@ -1,71 +1,58 @@
 package rpc
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net"
-	"sync/atomic"
-	"time"
+    "context"
+    "encoding/json"
+    "fmt"
+    "net"
+    "sync/atomic"
+    "time"
 
-	"github.com/Satanpapa/flydpi/orchestrator/internal/diagnostic"
+    "github.com/Satanpapa/flydpi/orchestrator/internal/diagnostic"
+    "github.com/Satanpapa/flydpi/orchestrator/internal/history"
+    "github.com/Satanpapa/flydpi/orchestrator/internal/profile"
 )
 
-type Server struct {
-	seq uint64
-	engine *diagnostic.Engine
-}
-
-type Request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      uint64          `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type Response struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      uint64      `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-}
-
+type Server struct { seq uint64; engine *diagnostic.Engine; profiles *profile.Store; history *history.Store }
+type Request struct { JSONRPC string `json:"jsonrpc"`; ID uint64 `json:"id"`; Method string `json:"method"`; Params json.RawMessage `json:"params,omitempty"` }
+type Response struct { JSONRPC string `json:"jsonrpc"`; ID uint64 `json:"id"`; Result interface{} `json:"result,omitempty"`; Error *RPCError `json:"error,omitempty"` }
 type RPCError struct { Code int `json:"code"`; Message string `json:"message"` }
 
-func NewServer(engine *diagnostic.Engine) *Server { return &Server{engine: engine} }
+func NewServer(engine *diagnostic.Engine, profiles *profile.Store, history *history.Store) *Server { return &Server{engine: engine, profiles: profiles, history: history} }
 
 func (s *Server) Handle(ctx context.Context, req Request) Response {
-	if req.JSONRPC != "2.0" { return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32600,"invalid request"}} }
-	switch req.Method {
-	case "status.get":
-		return Response{JSONRPC:"2.0", ID:req.ID, Result:map[string]interface{}{"state":"ready","sequence":atomic.LoadUint64(&s.seq)}}
-	case "diagnostic.run", "probe.run":
-		var p struct { Targets []string `json:"targets"` }
-		if len(req.Params) > 0 { if err:=json.Unmarshal(req.Params,&p); err!=nil { return Response{JSONRPC:"2.0",ID:req.ID,Error:&RPCError{-32602,"invalid params"}} } }
-		if len(p.Targets) > 0 { /* target override is intentionally handled by a future immutable run config */ }
-		atomic.AddUint64(&s.seq,1)
-		return Response{JSONRPC:"2.0",ID:req.ID,Result:s.engine.Run(ctx)}
-	default:
-		return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32601, fmt.Sprintf("method %q not found", req.Method)}}
-	}
+    if req.JSONRPC != "2.0" { return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32600,"invalid request"}} }
+    switch req.Method {
+    case "status.get":
+        return Response{JSONRPC:"2.0", ID:req.ID, Result:map[string]interface{}{"state":"ready","sequence":atomic.LoadUint64(&s.seq)}}
+    case "diagnostic.run", "probe.run":
+        atomic.AddUint64(&s.seq,1)
+        report := s.engine.Run(ctx)
+        _ = s.history.Add(history.Entry{Timestamp: report.FinishedAt, Severity: string(report.Severity), Title: report.Title, Summary: report.Explanation})
+        return Response{JSONRPC:"2.0",ID:req.ID,Result:report}
+    case "history.list":
+        items, err := s.history.List(); if err != nil { return Response{JSONRPC:"2.0",ID:req.ID,Error:&RPCError{-32020,err.Error()}} }
+        return Response{JSONRPC:"2.0",ID:req.ID,Result:items}
+    case "profile.list":
+        items, err := s.profiles.List(); if err != nil { return Response{JSONRPC:"2.0",ID:req.ID,Error:&RPCError{-32021,err.Error()}} }
+        return Response{JSONRPC:"2.0",ID:req.ID,Result:items}
+    case "profile.save":
+        var p profile.Profile
+        if err:=json.Unmarshal(req.Params,&p); err != nil { return Response{JSONRPC:"2.0",ID:req.ID,Error:&RPCError{-32602,"invalid profile"}} }
+        if err:=s.profiles.Save(p); err != nil { return Response{JSONRPC:"2.0",ID:req.ID,Error:&RPCError{-32022,err.Error()}} }
+        return Response{JSONRPC:"2.0",ID:req.ID,Result:map[string]bool{"saved":true}}
+    default:
+        return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32601, fmt.Sprintf("method %q not found", req.Method)}}
+    }
 }
 
-// ListenLoop is deliberately localhost-only for the GUI bridge.
 func ListenLoop(ctx context.Context, addr string, handler func(context.Context, Request) Response) error {
-	ln, err := net.Listen("tcp", addr); if err != nil { return err }
-	defer ln.Close()
-	for {
-		_ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(500*time.Millisecond))
-		conn, err := ln.Accept()
-		if err != nil {
-			if ne,ok:=err.(net.Error); ok && ne.Timeout() { select { case <-ctx.Done(): return ctx.Err(); default: continue } }
-			return err
-		}
-		go func(c net.Conn){
-			defer c.Close()
-			dec:=json.NewDecoder(c); enc:=json.NewEncoder(c)
-			var req Request
-			if err:=dec.Decode(&req); err == nil { _=enc.Encode(handler(ctx,req)) }
-		}(conn)
-	}
+    ln, err := net.Listen("tcp", addr); if err != nil { return err }
+    defer ln.Close()
+    for {
+        _ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(500*time.Millisecond))
+        conn, err := ln.Accept()
+        if err != nil { if ne,ok:=err.(net.Error); ok && ne.Timeout() { select { case <-ctx.Done(): return ctx.Err(); default: continue } }; return err }
+        go func(c net.Conn){ defer c.Close(); dec:=json.NewDecoder(c); enc:=json.NewEncoder(c); var req Request; if err:=dec.Decode(&req); err == nil { _=enc.Encode(handler(ctx,req)) } }(conn)
+    }
 }
