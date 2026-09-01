@@ -1,4 +1,5 @@
 mod model;
+mod native_wfp;
 mod telemetry;
 mod wfp;
 
@@ -6,6 +7,7 @@ use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
+pub use native_wfp::NativeWfpEngine;
 pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
 pub use wfp::{FilterId, WfpState};
 
@@ -15,10 +17,17 @@ fn state() -> &'static Mutex<WfpState> {
     STATE.get_or_init(|| Mutex::new(WfpState::default()))
 }
 
-/// Initializes the core lifecycle. This foundation does not install packet
-/// rewriting or traffic-disruption rules.
+/// Initializes the core lifecycle. On Windows this also opens a dynamic WFP
+/// management session; no packet-rewriting filters are installed.
 #[no_mangle]
 pub extern "C" fn init_wfp_filter() -> i32 {
+    #[cfg(windows)]
+    {
+        if NativeWfpEngine::open_dynamic().is_err() {
+            return -20;
+        }
+    }
+
     match state().lock() {
         Ok(mut guard) => guard.initialize().map(|_| 0).unwrap_or(-1),
         Err(_) => -4,
