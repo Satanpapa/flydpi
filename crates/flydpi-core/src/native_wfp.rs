@@ -34,14 +34,21 @@ impl NativeWfpEngine {
         let mut session = FWPM_SESSION0::default();
         session.flags = FWPM_SESSION_FLAG_DYNAMIC;
 
-        unsafe {
+        let rc = unsafe {
             FwpmEngineOpen0(
                 None,
-                RPC_C_AUTHN_DEFAULT,
+                RPC_C_AUTHN_DEFAULT as u32,
                 None,
-                &session,
+                Some(&session as *const FWPM_SESSION0),
                 &mut raw,
-            )?;
+            )
+        };
+
+        if rc != 0 {
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT::from_win32(rc),
+                format!("FwpmEngineOpen0 failed with Win32 error {rc}"),
+            ));
         }
 
         Ok(Self { handle: raw })
@@ -61,10 +68,9 @@ impl Drop for NativeWfpEngine {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
             unsafe {
-                let mut handle = self.handle;
-                let _ = FwpmEngineClose0(&mut handle);
-                self.handle = HANDLE::default();
+                let _ = FwpmEngineClose0(self.handle);
             }
+            self.handle = HANDLE::default();
         }
     }
 }
