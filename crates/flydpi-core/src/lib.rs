@@ -1,5 +1,6 @@
 mod model;
 mod native_wfp;
+mod ring;
 mod telemetry;
 mod wfp;
 
@@ -8,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
 pub use native_wfp::NativeWfpEngine;
+pub use ring::EventRing;
 pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
 pub use wfp::{FilterId, WfpState};
 
