@@ -1,11 +1,12 @@
 //! Windows-native WFP user-mode session adapter.
 //!
-//! This adapter opens a dynamic WFP engine session and provides ownership
-//! metadata for FlyDPI-managed objects. It intentionally does not register
-//! a kernel callout or modify packet payloads.
+//! Microsoft documents `FwpmEngineOpen0` as the user-mode entry point for
+//! opening a filter-engine session; a dynamic session automatically removes
+//! objects created in that session when it ends. This module uses that
+//! lifecycle but does not register kernel callouts or rewrite packets.
 
 #[cfg(windows)]
-use std::ptr::null_mut;
+use windows::Win32::Foundation::HANDLE;
 
 #[cfg(windows)]
 use windows::Win32::NetworkManagement::WindowsFilteringPlatform::{
@@ -13,7 +14,7 @@ use windows::Win32::NetworkManagement::WindowsFilteringPlatform::{
 };
 
 #[cfg(windows)]
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::Rpc::RPC_C_AUTHN_DEFAULT;
 
 #[cfg(windows)]
 pub struct NativeWfpEngine {
@@ -36,7 +37,7 @@ impl NativeWfpEngine {
         unsafe {
             FwpmEngineOpen0(
                 None,
-                1,
+                RPC_C_AUTHN_DEFAULT,
                 None,
                 &session,
                 &mut raw,
@@ -82,8 +83,13 @@ impl NativeWfpEngine {
     }
 }
 
-#[allow(dead_code)]
-fn _null_marker() {
-    #[cfg(windows)]
-    let _ = null_mut::<u8>();
+#[cfg(all(test, windows))]
+mod tests {
+    use super::NativeWfpEngine;
+
+    #[test]
+    fn opens_and_closes_dynamic_session() {
+        let engine = NativeWfpEngine::open_dynamic().expect("WFP/BFE unavailable");
+        assert!(engine.is_open());
+    }
 }
