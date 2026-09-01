@@ -1,0 +1,12 @@
+[package]
+name = "flydpi-core"
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
