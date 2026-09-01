@@ -1,10 +1,12 @@
 mod model;
+mod telemetry;
 mod wfp;
 
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
+pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
 pub use wfp::{FilterId, WfpState};
 
 static STATE: OnceLock<Mutex<WfpState>> = OnceLock::new();
@@ -18,7 +20,7 @@ fn state() -> &'static Mutex<WfpState> {
 #[no_mangle]
 pub extern "C" fn init_wfp_filter() -> i32 {
     match state().lock() {
-        Ok(guard) => guard.initialize().map(|_| 0).unwrap_or(-1),
+        Ok(mut guard) => guard.initialize().map(|_| 0).unwrap_or(-1),
         Err(_) => -4,
     }
 }
@@ -27,15 +29,9 @@ pub extern "C" fn init_wfp_filter() -> i32 {
 /// this foundation build.
 #[no_mangle]
 pub extern "C" fn apply_tactic(tactic_id: u32, handle: *mut c_void) -> i32 {
-    if handle.is_null() {
-        return -2;
-    }
-    if !matches!(tactic_id, 1..=5 | 99) {
-        return -10;
-    }
-    if state().lock().is_err() {
-        return -4;
-    }
+    if handle.is_null() { return -2; }
+    if !matches!(tactic_id, 1..=5 | 99) { return -10; }
+    if state().lock().is_err() { return -4; }
     0
 }
 
@@ -43,7 +39,7 @@ pub extern "C" fn apply_tactic(tactic_id: u32, handle: *mut c_void) -> i32 {
 #[no_mangle]
 pub extern "C" fn reset_filters() -> i32 {
     match state().lock() {
-        Ok(guard) => guard.reset().map(|_| 0).unwrap_or(-1),
+        Ok(mut guard) => guard.reset().map(|_| 0).unwrap_or(-1),
         Err(_) => -4,
     }
 }
