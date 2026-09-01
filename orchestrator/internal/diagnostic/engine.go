@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -55,13 +56,13 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 		if sysErr == nil { dnsMap[target] = systemIPs }
 		if sysErr == nil && dohErr == nil && addressSetsDiffer(systemIPs, dohIPs) { dnsStageFailed = true }
 	}
-	report.Stages[0].Status = StagePassed
 	report.Stages[0].Progress = 100
 	if dnsStageFailed {
 		report.Features.PoisoningDetected = true
 		report.Stages[0].Status = StageFailed
 		report.Stages[0].Summary = "Системный DNS расходится с независимым DoH-резолвером"
 	} else {
+		report.Stages[0].Status = StagePassed
 		report.Stages[0].Summary = "Системный DNS согласуется с независимым DoH-резолвером"
 	}
 
@@ -101,9 +102,9 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 	return report
 }
 
-func lookupAnyDoH(ctx context.Context, client interface{ Do(*http.Request) (*http.Response, error) }, host string) ([]net.IP, error) {
+func lookupAnyDoH(ctx context.Context, client *http.Client, host string) ([]net.IP, error) {
 	for _, endpoint := range defaultDoHEndpoints {
-		ips, err := lookupDoH(ctx, client.(*http.Client), endpoint, host)
+		ips, err := lookupDoH(ctx, client, endpoint, host)
 		if err == nil && len(ips) > 0 { return ips, nil }
 	}
 	return nil, fmt.Errorf("all DoH endpoints failed")
