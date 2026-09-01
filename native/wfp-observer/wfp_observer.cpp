@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <memory>
+#include <rpcdce.h>
 
 struct FlyDpiWfpObserver {
     HANDLE engine = nullptr;
@@ -9,7 +10,7 @@ struct FlyDpiWfpObserver {
     std::atomic<unsigned long long> events{0};
 };
 
-static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT1* /*event*/) {
+static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT2* /*event*/) {
     if (context == nullptr) {
         return;
     }
@@ -42,7 +43,7 @@ extern "C" DWORD flydpi_wfp_observer_start(FlyDpiWfpObserver** out_observer) {
     rc = FwpmNetEventSubscribe1(
         observer->engine,
         &subscription,
-        reinterpret_cast<FWPM_NET_EVENT_CALLBACK1>(on_net_event),
+        on_net_event,
         observer.get(),
         &observer->subscription);
     if (rc != ERROR_SUCCESS) {
