@@ -2,8 +2,8 @@
 #include "wfp_event_snapshot.h"
 
 #include <atomic>
-#include <cstring>
 #include <memory>
+#include <mutex>
 #include <rpcdce.h>
 #include <windows.h>
 
@@ -11,60 +11,50 @@ struct FlyDpiWfpObserver {
     HANDLE engine = nullptr;
     HANDLE subscription = nullptr;
     std::atomic<unsigned long long> events{0};
-    std::atomic<unsigned long long> dropped{0};
+    std::mutex latest_mutex;
     FlyDpiEventSnapshot latest{};
 };
 
 static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT2* event) {
-    if (context == nullptr || event == nullptr) {
-        return;
-    }
-
+    if (context == nullptr || event == nullptr) return;
     auto* observer = static_cast<FlyDpiWfpObserver*>(context);
+
     FlyDpiEventSnapshot snapshot{};
-    snapshot.timestamp_100ns = event->header.timeStamp ?
-        static_cast<uint64_t>(event->header.timeStamp->QuadPart) : 0;
-    snapshot.ip_version = event->header.ipVersion;
+    snapshot.timestamp_100ns = (static_cast<uint64_t>(event->header.timeStamp.dwHighDateTime) << 32) |
+                               event->header.timeStamp.dwLowDateTime;
+    snapshot.flags = event->header.flags;
+    snapshot.ip_version = static_cast<uint32_t>(event->header.ipVersion);
     snapshot.protocol = event->header.ipProtocol;
     snapshot.local_port = event->header.localPort;
     snapshot.remote_port = event->header.remotePort;
-    snapshot.process_id = static_cast<uint32_t>(event->header.processId);
-    snapshot.event_code = event->header.eventType;
-    snapshot.status = event->header.msFwpResult;
+    snapshot.event_type = static_cast<uint32_t>(event->type);
 
-    // Single-writer callback path. Readers only consume a copied snapshot
-    // through the C ABI; no Windows SDK structures cross that boundary.
-    observer->latest = snapshot;
+    // Only classify-drop events have the per-event FWP result payload we care
+    // about here. Other event types report zero rather than inventing a status.
+    if (event->type == FWPM_NET_EVENT_TYPE_CLASSIFY_DROP && event->classifyDrop != nullptr) {
+        snapshot.result_code = event->classifyDrop->msFwpResult;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(observer->latest_mutex);
+        observer->latest = snapshot;
+    }
     observer->events.fetch_add(1, std::memory_order_release);
 }
 
 extern "C" DWORD flydpi_wfp_observer_start(FlyDpiWfpObserver** out_observer) {
-    if (out_observer == nullptr) {
-        return ERROR_INVALID_PARAMETER;
-    }
+    if (out_observer == nullptr) return ERROR_INVALID_PARAMETER;
     *out_observer = nullptr;
 
     auto observer = std::make_unique<FlyDpiWfpObserver>();
     FWPM_SESSION0 session{};
     session.flags = FWPM_SESSION_FLAG_DYNAMIC;
 
-    DWORD rc = FwpmEngineOpen0(
-        nullptr,
-        RPC_C_AUTHN_DEFAULT,
-        nullptr,
-        &session,
-        &observer->engine);
-    if (rc != ERROR_SUCCESS) {
-        return rc;
-    }
+    DWORD rc = FwpmEngineOpen0(nullptr, RPC_C_AUTHN_DEFAULT, nullptr, &session, &observer->engine);
+    if (rc != ERROR_SUCCESS) return rc;
 
     FWPM_NET_EVENT_SUBSCRIPTION0 subscription{};
-    rc = FwpmNetEventSubscribe1(
-        observer->engine,
-        &subscription,
-        on_net_event,
-        observer.get(),
-        &observer->subscription);
+    rc = FwpmNetEventSubscribe1(observer->engine, &subscription, on_net_event, observer.get(), &observer->subscription);
     if (rc != ERROR_SUCCESS) {
         FwpmEngineClose0(&observer->engine);
         return rc;
@@ -75,9 +65,7 @@ extern "C" DWORD flydpi_wfp_observer_start(FlyDpiWfpObserver** out_observer) {
 }
 
 extern "C" void flydpi_wfp_observer_stop(FlyDpiWfpObserver* observer) {
-    if (observer == nullptr) {
-        return;
-    }
+    if (observer == nullptr) return;
     if (observer->subscription != nullptr) {
         FwpmNetEventUnsubscribe0(observer->engine, observer->subscription);
         observer->subscription = nullptr;
@@ -89,17 +77,13 @@ extern "C" void flydpi_wfp_observer_stop(FlyDpiWfpObserver* observer) {
     delete observer;
 }
 
-extern "C" unsigned long long flydpi_wfp_observer_event_count(
-    const FlyDpiWfpObserver* observer) {
+extern "C" unsigned long long flydpi_wfp_observer_event_count(const FlyDpiWfpObserver* observer) {
     return observer == nullptr ? 0 : observer->events.load(std::memory_order_acquire);
 }
 
-extern "C" DWORD flydpi_wfp_observer_latest(
-    const FlyDpiWfpObserver* observer,
-    FlyDpiEventSnapshot* out_snapshot) {
-    if (observer == nullptr || out_snapshot == nullptr) {
-        return ERROR_INVALID_PARAMETER;
-    }
+extern "C" DWORD flydpi_wfp_observer_latest(const FlyDpiWfpObserver* observer, FlyDpiEventSnapshot* out_snapshot) {
+    if (observer == nullptr || out_snapshot == nullptr) return ERROR_INVALID_PARAMETER;
+    std::lock_guard<std::mutex> lock(observer->latest_mutex);
     *out_snapshot = observer->latest;
     return ERROR_SUCCESS;
 }
