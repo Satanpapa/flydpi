@@ -150,6 +150,7 @@ if (-not (Test-Path $UiExe)) { throw "GUI executable not found: $UiExe" }
 
 Write-Host "[6/7] Creating portable distribution..."
 Copy-Item $LauncherOut (Join-Path $Dist "FlyDPI.exe") -Force
+Copy-Item (Join-Path $Root "launcher\FlyDPI.exe.manifest") (Join-Path $Dist "FlyDPI.exe.manifest") -Force
 Copy-Item $BackendOut (Join-Path $Dist "bin\flydpi.exe") -Force
 Copy-Item $CargoTarget (Join-Path $Dist "bin\flydpi-core.dll") -Force
 Copy-Item $ObserverDll (Join-Path $Dist "bin\flydpi_wfp_observer.dll") -Force
@@ -166,8 +167,11 @@ FlyDPI diagnostic MVP + low-level observation runtime
 
 Run FlyDPI.exe. It starts the local backend and Qt GUI.
 
-The bundled Rust runtime and native WFP observer are enabled when Windows
-permits WFP net-event subscription. Network payload transformation is not enabled.
+The launcher requests administrator privileges because WFP net-event
+subscription requires elevated Windows permissions on the target system.
+
+The bundled Rust runtime and native WFP observer are observation-only.
+Network payload transformation is not enabled.
 '@ | Set-Content -Encoding UTF8 (Join-Path $Dist "README.txt")
 
 Write-Host "Release ready: $Dist"
