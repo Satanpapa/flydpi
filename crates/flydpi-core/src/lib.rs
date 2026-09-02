@@ -5,6 +5,7 @@ mod native_wfp;
 mod packet;
 mod ring;
 mod telemetry;
+mod transport;
 mod wfp;
 mod wfp_bridge;
 
@@ -18,6 +19,7 @@ pub use native_wfp::NativeWfpEngine;
 pub use packet::{parse_ipv4_transport, PacketParseError};
 pub use ring::EventRing;
 pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
+pub use transport::{analyze_payload, analyze_quic_header, analyze_tls_client_hello, QuicHeaderInfo, TlsClientHelloInfo, TransportInfo, TransportParseError};
 pub use wfp::{FilterId, WfpState};
 pub use wfp_bridge::{classify_snapshot, feed_snapshot, snapshot_to_event, snapshot_to_meta, BridgeError, SnapshotClass, WfpEventSnapshot, WfpObserverBridge};
 
