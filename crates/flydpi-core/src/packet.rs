@@ -59,20 +59,17 @@ pub fn parse_ipv4_transport(
             if data_offset < 20 || ihl + data_offset > total_len {
                 return Err(PacketParseError::InvalidTransportHeader);
             }
+            let (remote_port, local_port) = match direction {
+                PacketDirection::Outbound => (dst_port, src_port),
+                PacketDirection::Inbound => (src_port, dst_port),
+                PacketDirection::Unknown => return Err(PacketParseError::UnknownDirection),
+            };
             Ok(PacketMeta {
                 flow: FlowKey {
                     protocol: Protocol::Tcp,
                     remote_ip,
-                    remote_port: match direction {
-                        PacketDirection::Outbound => dst_port,
-                        PacketDirection::Inbound => src_port,
-                        PacketDirection::Unknown => unreachable!(),
-                    },
-                    local_port: match direction {
-                        PacketDirection::Outbound => src_port,
-                        PacketDirection::Inbound => dst_port,
-                        PacketDirection::Unknown => unreachable!(),
-                    },
+                    remote_port,
+                    local_port,
                 },
                 direction,
                 payload_len: total_len - ihl - data_offset,
@@ -89,20 +86,17 @@ pub fn parse_ipv4_transport(
             if udp_len < 8 || ihl + udp_len > total_len {
                 return Err(PacketParseError::InvalidTransportHeader);
             }
+            let (remote_port, local_port) = match direction {
+                PacketDirection::Outbound => (dst_port, src_port),
+                PacketDirection::Inbound => (src_port, dst_port),
+                PacketDirection::Unknown => return Err(PacketParseError::UnknownDirection),
+            };
             Ok(PacketMeta {
                 flow: FlowKey {
                     protocol: Protocol::Udp,
                     remote_ip,
-                    remote_port: match direction {
-                        PacketDirection::Outbound => dst_port,
-                        PacketDirection::Inbound => src_port,
-                        PacketDirection::Unknown => unreachable!(),
-                    },
-                    local_port: match direction {
-                        PacketDirection::Outbound => src_port,
-                        PacketDirection::Inbound => dst_port,
-                        PacketDirection::Unknown => unreachable!(),
-                    },
+                    remote_port,
+                    local_port,
                 },
                 direction,
                 payload_len: udp_len - 8,
