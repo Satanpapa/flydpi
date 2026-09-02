@@ -98,10 +98,7 @@ impl Datapath {
     pub fn event_for(meta: PacketMeta, pid: u32, timestamp_unix_ms: u64) -> NetworkEvent {
         NetworkEvent {
             timestamp_unix_ms,
-            kind: match meta.direction {
-                PacketDirection::Outbound => EventKind::ConnectAttempt,
-                PacketDirection::Inbound => EventKind::ConnectSuccess,
-            },
+            kind: EventKind::PacketObserved,
             protocol: match meta.flow.protocol {
                 Protocol::Tcp => "tcp".into(),
                 Protocol::Udp => "udp".into(),
