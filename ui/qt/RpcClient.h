@@ -46,14 +46,18 @@ private slots:
     void onConnected();
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError error);
+    void onDisconnected();
+    void retryConnection();
     void pollTelemetry();
 
 private:
     void send(const QString& method, const QJsonObject& params);
     void handleResult(quint64 id, const QJsonValue& value);
+    void scheduleReconnect();
 
     QTcpSocket m_socket;
     QTimer m_telemetryTimer;
+    QTimer m_reconnectTimer;
     quint64 m_nextId{1};
     QByteArray m_buffer;
     QVariantMap m_diagnosticReport;
