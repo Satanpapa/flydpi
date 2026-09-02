@@ -1,4 +1,5 @@
 mod datapath;
+mod flow_analyzer;
 mod ingest;
 mod model;
 mod native_wfp;
@@ -13,6 +14,7 @@ use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
 pub use datapath::{Datapath, DatapathAction, FlowKey, FlowState, PacketDirection, PacketMeta};
+pub use flow_analyzer::{FlowDiagnosis, FlowSessionAnalyzer, FlowSignals, FlowSnapshot, TcpLifecycle};
 pub use ingest::{IngestStats, IngestWorker};
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
 pub use native_wfp::NativeWfpEngine;
@@ -35,11 +37,8 @@ fn state() -> &'static Mutex<WfpState> {
 pub extern "C" fn init_wfp_filter() -> i32 {
     #[cfg(windows)]
     {
-        if NativeWfpEngine::open_dynamic().is_err() {
-            return -20;
-        }
+        if NativeWfpEngine::open_dynamic().is_err() { return -20; }
     }
-
     match state().lock() {
         Ok(mut guard) => guard.initialize().map(|_| 0).unwrap_or(-1),
         Err(_) => -4,
