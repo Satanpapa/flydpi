@@ -1,5 +1,6 @@
 #include "RpcClient.h"
 
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -104,7 +105,14 @@ void RpcClient::handleResult(quint64 id, const QJsonValue& value) {
             emit diagnosticReportChanged();
         }
         if (result.contains("runtime")) {
-            const bool enabled = result.value("runtime").toObject().value("enabled").toBool(false);
+            const auto runtimeObject = result.value("runtime").toObject();
+            const bool enabled = runtimeObject.value("enabled").toBool(false);
+            const QString runtimeError = runtimeObject.value("error").toString();
+            if (!enabled) {
+                qWarning().noquote() << "FlyDPI runtime is disabled:" << (runtimeError.isEmpty() ? QStringLiteral("unknown reason") : runtimeError);
+            } else {
+                qInfo() << "FlyDPI runtime is enabled";
+            }
             if (enabled != m_runtimeEnabled) {
                 m_runtimeEnabled = enabled;
                 emit runtimeStatusChanged();
