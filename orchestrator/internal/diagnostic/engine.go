@@ -54,16 +54,23 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 		dohIPs, dohErr := lookupAnyDoH(ctxDNS, doh.http, target)
 		cancel()
 		if sysErr == nil { dnsMap[target] = systemIPs }
-		if sysErr == nil && dohErr == nil && addressSetsDiffer(systemIPs, dohIPs) { dnsStageFailed = true }
+
+		// Different resolvers may legitimately return different CDN/geo-selected
+		// addresses. Treat a mismatch as suspicious only when one resolver has
+		// usable addresses and the other has none, which is a stronger signal of
+		// filtering or resolver failure and avoids false critical alarms.
+		if (sysErr == nil) != (dohErr == nil) {
+			dnsStageFailed = true
+		}
 	}
 	report.Stages[0].Progress = 100
 	if dnsStageFailed {
 		report.Features.PoisoningDetected = true
 		report.Stages[0].Status = StageFailed
-		report.Stages[0].Summary = "Системный DNS расходится с независимым DoH-резолвером"
+		report.Stages[0].Summary = "Системный DNS и независимый DoH-резолвер дали разные результаты доступности"
 	} else {
 		report.Stages[0].Status = StagePassed
-		report.Stages[0].Summary = "Системный DNS согласуется с независимым DoH-резолвером"
+		report.Stages[0].Summary = "Различия адресов между резолверами не считаются аномалией сами по себе"
 	}
 
 	probeEngine := probe.NewEngine(probe.EngineConfig{Targets: e.cfg.Targets, Port: e.cfg.Port, Timeout: e.cfg.Timeout, Concurrency: e.cfg.Concurrency})
@@ -118,7 +125,7 @@ func stageForFailures(failures, total int) StageStatus {
 func summarize(r DiagnosticReport) (Severity, string, string, string) {
 	failTCP, failTLS := 0, 0
 	for _, x := range r.ProbeResults { if !x.TCPConnected { failTCP++ }; if x.TCPConnected && !x.TLSHandshake { failTLS++ } }
-	if r.Features.PoisoningDetected { return SeverityCritical, "Обнаружена DNS-аномалия", "Системные DNS-ответы расходятся с независимым DoH-резолвером. Это повод проверить DNS-инфраструктуру; само по себе расхождение не доказывает DPI.", "Открыть подробности DNS" }
+	if r.Features.PoisoningDetected { return SeverityWarning, "Обнаружена DNS-аномалия", "Один из DNS-резолверов не вернул пригодный результат, тогда как другой вернул адреса. Это повод проверить DNS-инфраструктуру; само по себе это не доказывает DPI.", "Открыть подробности DNS" }
 	if failTCP == 0 && failTLS == 0 { return SeverityOK, "Сеть работает нормально", "DNS, TCP и TLS базовые проверки завершились без явных признаков блокировки.", "Ничего не менять" }
 	if r.Features.RSTDetected { return SeverityWarning, "Обнаружена сетевая аномалия", "Во время части TCP-проверок наблюдался reset. Нужна корреляция с телеметрией WFP и повторная проверка.", "Открыть подробную диагностику" }
 	return SeverityWarning, "Часть проверок не пройдена", "Некоторые цели недоступны или TLS handshake завершился ошибкой. По одному симптому нельзя уверенно подтвердить DPI-блокировку.", "Показать детали"
