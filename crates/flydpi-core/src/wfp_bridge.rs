@@ -11,7 +11,7 @@ use windows::Win32::Foundation::{FreeLibrary, HINSTANCE};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct WfpEventSnapshot {
     pub timestamp_100ns: u64,
     pub flags: u32,
@@ -29,6 +29,29 @@ pub struct WfpEventSnapshot {
     pub reserved0: u8,
     pub app_id_length: u32,
     pub app_id_prefix: [u8; 64],
+}
+
+impl Default for WfpEventSnapshot {
+    fn default() -> Self {
+        Self {
+            timestamp_100ns: 0,
+            flags: 0,
+            ip_version: 0,
+            protocol: 0,
+            local_port: 0,
+            remote_port: 0,
+            local_addr: [0; 16],
+            remote_addr: [0; 16],
+            event_type: 0,
+            result_code: 0,
+            has_local_addr: 0,
+            has_remote_addr: 0,
+            has_app_id: 0,
+            reserved0: 0,
+            app_id_length: 0,
+            app_id_prefix: [0; 64],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +128,7 @@ impl Drop for WfpObserverBridge {
     fn drop(&mut self) {
         unsafe {
             (self.stop)(self.observer);
-            FreeLibrary(self.module);
+            let _ = FreeLibrary(self.module.into());
         }
     }
 }
