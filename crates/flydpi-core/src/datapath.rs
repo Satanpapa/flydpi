@@ -2,8 +2,7 @@
 //!
 //! This module owns flow state and packet metadata normalization. It deliberately
 //! does not rewrite payloads, synthesize packets, alter TLS/QUIC fields, or make
-//! kernel filtering decisions. Those capabilities require a separately reviewed
-//! Windows datapath implementation.
+//! kernel filtering decisions.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -96,17 +95,22 @@ impl Datapath {
         self.flows.clear();
     }
 
-    pub fn event_for(meta: PacketMeta, pid: u32, timestamp_ms: u64) -> NetworkEvent {
+    pub fn event_for(meta: PacketMeta, pid: u32, timestamp_unix_ms: u64) -> NetworkEvent {
         NetworkEvent {
-            timestamp_ms,
-            kind: EventKind::Other,
+            timestamp_unix_ms,
+            kind: match meta.direction {
+                PacketDirection::Outbound => EventKind::ConnectAttempt,
+                PacketDirection::Inbound => EventKind::ConnectSuccess,
+            },
             protocol: match meta.flow.protocol {
                 Protocol::Tcp => "tcp".into(),
                 Protocol::Udp => "udp".into(),
             },
-            remote: format!("{}:{}", format_remote(meta.flow.remote_ip), meta.flow.remote_port),
-            pid,
-            status: meta.payload_len.min(u32::MAX as usize) as u32,
+            remote_addr: format_remote(meta.flow.remote_ip),
+            remote_port: meta.flow.remote_port,
+            process_id: Some(pid),
+            latency_ms: None,
+            error_code: None,
         }
     }
 }
