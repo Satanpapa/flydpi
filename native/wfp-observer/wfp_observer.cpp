@@ -82,9 +82,10 @@ static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT2* event) {
         }
     }
 
-    if (event->type == FWPM_NET_EVENT_TYPE_CLASSIFY_DROP && event->classifyDrop != nullptr) {
-        snapshot.result_code = event->classifyDrop->msFwpResult;
-    }
+    // FWPM_NET_EVENT_CLASSIFY_DROP2 does not expose an msFwpResult field.
+    // Keep result_code reserved for a future explicit status mapping rather
+    // than inventing an error code from unrelated fields.
+    snapshot.result_code = 0;
 
     {
         std::lock_guard<std::mutex> lock(observer->queue_mutex);
