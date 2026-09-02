@@ -11,10 +11,7 @@ ApplicationWindow {
     minimumHeight: 650
     title: "FlyDPI"
 
-    Theme {
-        id: theme
-    }
-
+    Theme { id: theme }
     property int page: 0
     property string mode: "Auto"
     property bool running: false
@@ -25,41 +22,22 @@ ApplicationWindow {
 
     function severityTone() {
         var severity = report["severity"] || "ok"
-        if (severity === "critical")
-            return theme.bad
-        if (severity === "warning")
-            return theme.warn
+        if (severity === "critical") return theme.bad
+        if (severity === "warning") return theme.warn
         return theme.good
     }
-
     function severityText() {
         var severity = report["severity"] || "ok"
-        if (severity === "critical")
-            return "КРИТИЧНО"
-        if (severity === "warning")
-            return "ВНИМАНИЕ"
+        if (severity === "critical") return "КРИТИЧНО"
+        if (severity === "warning") return "ВНИМАНИЕ"
         return report["schema_version"] ? "НОРМА" : "ГОТОВ"
     }
-
-    function stages() {
-        return report["stages"] || []
-    }
-
-    function probes() {
-        return report["probe_results"] || []
-    }
-
-    function features() {
-        return report["features"] || {}
-    }
-
-    function wfp() {
-        return report["wfp_events"] || {}
-    }
-
+    function stages() { return report["stages"] || [] }
+    function probes() { return report["probe_results"] || [] }
+    function features() { return report["features"] || {} }
+    function wfp() { return report["wfp_events"] || {} }
     function startDiagnostic() {
-        if (running || !rpcClient.connected)
-            return
+        if (running || !rpcClient.connected) return
         running = true
         diagnosisText = "Проводим диагностику…"
         detailText = "Проверяются DNS, TCP, TLS и корреляция WFP."
@@ -68,7 +46,6 @@ ApplicationWindow {
 
     Connections {
         target: rpcClient
-
         function onConnectedChanged() {
             if (!rpcClient.connected) {
                 running = false
@@ -79,14 +56,12 @@ ApplicationWindow {
                 detailText = "Нажмите кнопку, чтобы начать проверку."
             }
         }
-
         function onDiagnosticReportChanged() {
             window.report = rpcClient.diagnosticReport
             running = false
             diagnosisText = rpcClient.diagnosticReport["title"] || "Диагностика завершена"
             detailText = rpcClient.diagnosticReport["explanation"] || "Отчёт сформирован."
         }
-
         function onErrorOccurred(message) {
             running = false
             diagnosisText = "Ошибка диагностики"
@@ -131,7 +106,6 @@ ApplicationWindow {
 
                     Repeater {
                         model: ["Обзор", "Диагностика", "Профили", "История", "Настройки"]
-
                         delegate: Button {
                             required property string modelData
                             text: modelData
@@ -157,9 +131,7 @@ ApplicationWindow {
                         }
                     }
 
-                    Item {
-                        Layout.fillHeight: true
-                    }
+                    Item { Layout.fillHeight: true }
 
                     Rectangle {
                         Layout.fillWidth: true
@@ -205,7 +177,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     implicitHeight: 68
                     color: theme.bg
-                    border.bottom.color: theme.border
+                    border.color: theme.border
 
                     RowLayout {
                         anchors.fill: parent
@@ -218,9 +190,7 @@ ApplicationWindow {
                             font.bold: true
                         }
 
-                        Item {
-                            Layout.fillWidth: true
-                        }
+                        Item { Layout.fillWidth: true }
 
                         Label {
                             text: rpcClient.runtimeEnabled ? "WFP LIVE" : (rpcClient.connected ? "DIAGNOSTIC" : "OFFLINE")
@@ -261,16 +231,8 @@ ApplicationWindow {
                                     spacing: 10
 
                                     RowLayout {
-                                        Label {
-                                            text: "Результат диагностики"
-                                            color: theme.muted
-                                            font.pixelSize: 13
-                                        }
-
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
-
+                                        Label { text: "Результат диагностики"; color: theme.muted; font.pixelSize: 13 }
+                                        Item { Layout.fillWidth: true }
                                         StatusPill {
                                             text: running ? "ПРОВЕРКА" : severityText()
                                             tone: running ? theme.accent : severityTone()
@@ -304,9 +266,7 @@ ApplicationWindow {
                                             onClicked: startDiagnostic()
                                         }
 
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
+                                        Item { Layout.fillWidth: true }
 
                                         Button {
                                             visible: !running && report["severity"] && report["severity"] !== "ok"
@@ -323,7 +283,6 @@ ApplicationWindow {
 
                                 Repeater {
                                     model: ["DNS", "TCP", "TLS", "RST", "Timeout", "WFP"]
-
                                     delegate: Rectangle {
                                         required property string modelData
                                         Layout.fillWidth: true
@@ -337,11 +296,7 @@ ApplicationWindow {
                                             anchors.margins: 16
                                             spacing: 7
 
-                                            Label {
-                                                text: modelData
-                                                color: theme.muted
-                                                font.pixelSize: 11
-                                            }
+                                            Label { text: modelData; color: theme.muted; font.pixelSize: 11 }
 
                                             Label {
                                                 text: modelData === "RST"
@@ -380,16 +335,8 @@ ApplicationWindow {
                                     spacing: 10
 
                                     RowLayout {
-                                        Label {
-                                            text: "Live WFP events"
-                                            color: theme.text
-                                            font.bold: true
-                                        }
-
-                                        Item {
-                                            Layout.fillWidth: true
-                                        }
-
+                                        Label { text: "Live WFP events"; color: theme.text; font.bold: true }
+                                        Item { Layout.fillWidth: true }
                                         Label {
                                             text: rpcClient.runtimeEnabled ? "подключено" : "нет runtime"
                                             color: rpcClient.runtimeEnabled ? theme.good : theme.muted
@@ -448,15 +395,10 @@ ApplicationWindow {
                                     anchors.margins: 18
                                     spacing: 10
 
-                                    Label {
-                                        text: "Этапы проверки"
-                                        color: theme.text
-                                        font.bold: true
-                                    }
+                                    Label { text: "Этапы проверки"; color: theme.text; font.bold: true }
 
                                     Repeater {
                                         model: stages()
-
                                         delegate: RowLayout {
                                             required property var modelData
                                             Layout.fillWidth: true
@@ -499,11 +441,7 @@ ApplicationWindow {
                                     anchors.margins: 18
                                     spacing: 10
 
-                                    Label {
-                                        text: "Проверенные цели"
-                                        color: theme.text
-                                        font.bold: true
-                                    }
+                                    Label { text: "Проверенные цели"; color: theme.text; font.bold: true }
 
                                     ListView {
                                         Layout.fillWidth: true
@@ -554,29 +492,19 @@ ApplicationWindow {
                             anchors.margins: 28
                             spacing: 14
 
-                            Label {
-                                text: "Диагностика"
-                                color: theme.text
-                                font.pixelSize: 24
-                                font.bold: true
-                            }
-
+                            Label { text: "Диагностика"; color: theme.text; font.pixelSize: 24; font.bold: true }
                             Label {
                                 text: report["explanation"] || "Запустите проверку сети."
                                 color: theme.muted
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
                             }
-
                             Button {
                                 text: "Запустить полную проверку"
                                 enabled: !running && rpcClient.connected
                                 onClicked: startDiagnostic()
                             }
-
-                            Item {
-                                Layout.fillHeight: true
-                            }
+                            Item { Layout.fillHeight: true }
                         }
                     }
 
@@ -586,35 +514,15 @@ ApplicationWindow {
                             anchors.margins: 28
                             spacing: 14
 
-                            Label {
-                                text: "Профили ISP"
-                                color: theme.text
-                                font.pixelSize: 24
-                                font.bold: true
-                            }
-
-                            Label {
-                                text: "Сохраняйте результаты для быстрого сравнения состояния сети."
-                                color: theme.muted
-                            }
+                            Label { text: "Профили ISP"; color: theme.text; font.pixelSize: 24; font.bold: true }
+                            Label { text: "Сохраняйте результаты для быстрого сравнения состояния сети."; color: theme.muted }
 
                             RowLayout {
-                                TextField {
-                                    id: profileName
-                                    placeholderText: "Название профиля"
-                                    Layout.fillWidth: true
-                                }
-
+                                TextField { id: profileName; placeholderText: "Название профиля"; Layout.fillWidth: true }
                                 Button {
                                     text: "Сохранить"
                                     enabled: profileName.text.length > 0
-                                    onClicked: rpcClient.saveProfile(
-                                        profileName.text,
-                                        report["recommended_action"] || "Ничего не менять",
-                                        mode,
-                                        1500,
-                                        ["example.com", "t.me", "youtube.com"]
-                                    )
+                                    onClicked: rpcClient.saveProfile(profileName.text, report["recommended_action"] || "Ничего не менять", mode, 1500, ["example.com", "t.me", "youtube.com"])
                                 }
                             }
 
@@ -627,22 +535,13 @@ ApplicationWindow {
                                     width: ListView.view.width
                                     height: 58
                                     color: "transparent"
-                                    border.bottom.color: theme.border
+                                    border.color: theme.border
 
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: 10
-
-                                        Label {
-                                            text: modelData.name || "Unnamed"
-                                            color: theme.text
-                                            Layout.fillWidth: true
-                                        }
-
-                                        Label {
-                                            text: modelData.preferred_action || "—"
-                                            color: theme.muted
-                                        }
+                                        Label { text: modelData.name || "Unnamed"; color: theme.text; Layout.fillWidth: true }
+                                        Label { text: modelData.preferred_action || "—"; color: theme.muted }
                                     }
                                 }
                             }
@@ -655,17 +554,8 @@ ApplicationWindow {
                             anchors.margins: 28
                             spacing: 14
 
-                            Label {
-                                text: "История"
-                                color: theme.text
-                                font.pixelSize: 24
-                                font.bold: true
-                            }
-
-                            Button {
-                                text: "Обновить"
-                                onClicked: rpcClient.historyList()
-                            }
+                            Label { text: "История"; color: theme.text; font.pixelSize: 24; font.bold: true }
+                            Button { text: "Обновить"; onClicked: rpcClient.historyList() }
 
                             ListView {
                                 Layout.fillWidth: true
@@ -676,43 +566,21 @@ ApplicationWindow {
                                     width: ListView.view.width
                                     height: 72
                                     color: "transparent"
-                                    border.bottom.color: theme.border
+                                    border.color: theme.border
 
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: 10
-
-                                        Label {
-                                            text: modelData.timestamp || ""
-                                            color: theme.muted
-                                            Layout.preferredWidth: 200
-                                        }
-
+                                        Label { text: modelData.timestamp || ""; color: theme.muted; Layout.preferredWidth: 200 }
                                         Label {
                                             text: modelData.severity || ""
-                                            color: modelData.severity === "critical"
-                                                   ? theme.bad
-                                                   : modelData.severity === "warning"
-                                                   ? theme.warn
-                                                   : theme.good
+                                            color: (modelData.severity === "critical" ? theme.bad : modelData.severity === "warning" ? theme.warn : theme.good)
                                             Layout.preferredWidth: 90
                                         }
-
                                         ColumnLayout {
                                             Layout.fillWidth: true
-
-                                            Label {
-                                                text: modelData.title || ""
-                                                color: theme.text
-                                                font.bold: true
-                                            }
-
-                                            Label {
-                                                text: modelData.summary || ""
-                                                color: theme.muted
-                                                elide: Text.ElideRight
-                                                Layout.fillWidth: true
-                                            }
+                                            Label { text: modelData.title || ""; color: theme.text; font.bold: true }
+                                            Label { text: modelData.summary || ""; color: theme.muted; elide: Text.ElideRight; Layout.fillWidth: true }
                                         }
                                     }
                                 }
@@ -726,20 +594,10 @@ ApplicationWindow {
                             anchors.margins: 28
                             spacing: 18
 
-                            Label {
-                                text: "Настройки"
-                                color: theme.text
-                                font.pixelSize: 24
-                                font.bold: true
-                            }
+                            Label { text: "Настройки"; color: theme.text; font.pixelSize: 24; font.bold: true }
 
                             RowLayout {
-                                Label {
-                                    text: "Режим"
-                                    color: theme.text
-                                    Layout.fillWidth: true
-                                }
-
+                                Label { text: "Режим"; color: theme.text; Layout.fillWidth: true }
                                 ComboBox {
                                     model: ["Auto", "Manual"]
                                     currentIndex: mode === "Auto" ? 0 : 1
@@ -754,9 +612,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                             }
 
-                            Item {
-                                Layout.fillHeight: true
-                            }
+                            Item { Layout.fillHeight: true }
                         }
                     }
                 }
