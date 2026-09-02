@@ -1,8 +1,4 @@
 //! Low-level, transformation-free network datapath.
-//!
-//! This module owns flow state and packet metadata normalization. It deliberately
-//! does not rewrite payloads, synthesize packets, alter TLS/QUIC fields, or make
-//! kernel filtering decisions.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -22,6 +18,7 @@ pub struct FlowKey {
 pub enum PacketDirection {
     Outbound,
     Inbound,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,9 +50,7 @@ pub struct Datapath {
 }
 
 impl Datapath {
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 
     pub fn on_packet(&mut self, meta: PacketMeta, now: Instant) -> DatapathAction {
         let entry = self.flows.entry(meta.flow).or_insert_with(|| FlowState {
@@ -64,26 +59,21 @@ impl Datapath {
                 remote_addr: format_remote(meta.flow.remote_ip),
                 remote_port: meta.flow.remote_port,
                 hostname: None,
+                started_unix_ms: 0,
             },
             created_at: now,
             last_seen: now,
             packets: 0,
             bytes: 0,
         });
-
         entry.last_seen = now;
         entry.packets = entry.packets.saturating_add(1);
         entry.bytes = entry.bytes.saturating_add(meta.payload_len as u64);
         DatapathAction::Observe
     }
 
-    pub fn flow(&self, key: &FlowKey) -> Option<&FlowState> {
-        self.flows.get(key)
-    }
-
-    pub fn flow_count(&self) -> usize {
-        self.flows.len()
-    }
+    pub fn flow(&self, key: &FlowKey) -> Option<&FlowState> { self.flows.get(key) }
+    pub fn flow_count(&self) -> usize { self.flows.len() }
 
     pub fn expire_idle(&mut self, now: Instant, idle: Duration) -> usize {
         let before = self.flows.len();
@@ -91,9 +81,7 @@ impl Datapath {
         before - self.flows.len()
     }
 
-    pub fn clear(&mut self) {
-        self.flows.clear();
-    }
+    pub fn clear(&mut self) { self.flows.clear(); }
 
     pub fn event_for(meta: PacketMeta, pid: u32, timestamp_unix_ms: u64) -> NetworkEvent {
         NetworkEvent {
@@ -102,6 +90,7 @@ impl Datapath {
             protocol: match meta.flow.protocol {
                 Protocol::Tcp => "tcp".into(),
                 Protocol::Udp => "udp".into(),
+                Protocol::Unknown => "unknown".into(),
             },
             remote_addr: format_remote(meta.flow.remote_ip),
             remote_port: meta.flow.remote_port,
@@ -125,22 +114,17 @@ mod tests {
     use super::*;
 
     fn key() -> FlowKey {
-        FlowKey {
-            protocol: Protocol::Tcp,
-            remote_ip: [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            remote_port: 443,
-            local_port: 51000,
-        }
+        FlowKey { protocol: Protocol::Tcp, remote_ip: [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0], remote_port: 443, local_port: 51000 }
     }
 
     #[test]
     fn tracks_flow_without_transforming_payload() {
         let now = Instant::now();
         let mut dp = Datapath::new();
-        let meta = PacketMeta { flow: key(), direction: PacketDirection::Outbound, payload_len: 120, tcp_flags: 0x18 };
+        let meta = PacketMeta { flow: key(), direction: PacketDirection::Unknown, payload_len: 120, tcp_flags: 0x18 };
         assert_eq!(dp.on_packet(meta, now), DatapathAction::Observe);
         assert_eq!(dp.on_packet(meta, now + Duration::from_millis(1)), DatapathAction::Observe);
-        let flow = dp.flow(&key()).expect("flow tracked");
+        let flow = dp.flow(&key()).unwrap();
         assert_eq!(flow.packets, 2);
         assert_eq!(flow.bytes, 240);
     }
@@ -149,7 +133,7 @@ mod tests {
     fn expires_idle_flows() {
         let now = Instant::now();
         let mut dp = Datapath::new();
-        let meta = PacketMeta { flow: key(), direction: PacketDirection::Inbound, payload_len: 1, tcp_flags: 0 };
+        let meta = PacketMeta { flow: key(), direction: PacketDirection::Unknown, payload_len: 1, tcp_flags: 0 };
         dp.on_packet(meta, now);
         assert_eq!(dp.expire_idle(now + Duration::from_secs(6), Duration::from_secs(5)), 1);
         assert_eq!(dp.flow_count(), 0);
