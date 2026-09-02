@@ -2,7 +2,7 @@
 
 Windows 10/11 local network diagnostics and WFP research framework.
 
-> **Current release status:** diagnostic MVP plus an event-driven low-level datapath foundation. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, and track normalized network events in the native/Rust pipeline. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
+> **Current release status:** diagnostic MVP plus a low-level observation datapath. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, and route normalized WFP event snapshots through the Rust flow engine. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
 
 ## Quick build on Windows
 
@@ -26,51 +26,29 @@ The portable distribution is created under:
 
 ```text
 dist\FlyDPI\
-  FlyDPI.exe              # single user-facing launcher
-  bin\flydpi.exe          # local Go diagnostic backend
-  ui\flydpi-ui.exe       # Qt6 GUI
-  ...                     # Qt runtime/QML dependencies
+  FlyDPI.exe
+  bin\flydpi.exe
+  ui\flydpi-ui.exe
+  ...
 ```
 
-Launch with:
+## Low-level engine
 
-```powershell
-.\dist\FlyDPI\FlyDPI.exe
-```
+The Rust core now contains the first observation datapath layers:
 
-The launcher starts the local backend, starts the GUI, and terminates the backend when the GUI exits.
+- `datapath.rs` — stable flow identity, normalized packet metadata, counters and idle expiry;
+- `packet.rs` — bounds-checked IPv4/TCP/UDP metadata parsing;
+- `wfp_bridge.rs` — stable ABI snapshot normalization and optional runtime loading of the native WFP observer;
+- `ingest.rs` — background pump from the native WFP queue into the Rust datapath and bounded event ring;
+- `ring.rs` — bounded event buffering with observable drops.
 
-## Project layout
+The native observer uses `FwpmEngineOpen0` and `FwpmNetEventSubscribe1`, owns its WFP handles, and exports only a fixed-width snapshot ABI. The Rust side deliberately treats net-event direction as unknown instead of guessing from endpoint fields.
 
-```text
-crates/flydpi-core/       Rust core + flow datapath/WFP lifecycle/telemetry
-native/wfp-observer/      Native WFP event-ingest adapter
-orchestrator/             Go diagnostic backend / JSON-RPC
-launcher/                 Single-executable Windows launcher
-ui/                       Qt6/QML GUI
-config/                   Example ISP profile
-architecture/              System, datapath, and protocol documentation
-scripts/                  Windows build/package helpers
-```
-
-## Low-level datapath phase
-
-The low-level engine now has three explicit layers:
-
-1. **Packet normalization** — bounds-checked IPv4/TCP/UDP parsing into stable `PacketMeta` records.
-2. **Flow datapath** — stable flow identity, direction, counters, lifetime and bounded expiry.
-3. **Native WFP ingest** — asynchronous WFP net-event subscription, stable ABI snapshots, bounded FIFO queue and overflow telemetry.
-
-The native observer copies only owned scalar/byte-array data from `FWPM_NET_EVENT2`; no Windows kernel/user pointers cross into the Rust core. The queue is intentionally bounded and drops the oldest record on overflow while exposing a drop counter.
-
-See:
-
-- `architecture/DATAPATH_ENGINE.md`
-- `architecture/WFP_OBSERVABILITY.md`
+See `architecture/DATAPATH_ENGINE.md` and `architecture/WFP_INGEST.md` for the dataflow and lifecycle rules.
 
 ## Notes
 
-The Rust core is still not embedded into the Go backend as a production packet-processing path. The release script validates the Rust workspace and packages the currently functional Go + Qt diagnostic application.
+The low-level engine remains observation-only. It does not inject, forge, split, drop, or rewrite network traffic. The Rust core is not yet embedded into the packaged Go backend as a production packet-processing service.
 
 All active changes to network policy must remain explicit, auditable, reversible, and scoped to FlyDPI-owned state.
 
