@@ -2,12 +2,11 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QUrl>
-#include <QQuickStyle>
 #include "RpcClient.h"
 
 int main(int argc, char* argv[]) {
+    qputenv("QT_QUICK_CONTROLS_STYLE", QByteArrayLiteral("Basic"));
     QGuiApplication app(argc, argv);
-    QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     RpcClient rpc;
     QQmlApplicationEngine engine;
