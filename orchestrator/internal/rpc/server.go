@@ -11,20 +11,40 @@ import (
     "github.com/Satanpapa/flydpi/orchestrator/internal/diagnostic"
     "github.com/Satanpapa/flydpi/orchestrator/internal/history"
     "github.com/Satanpapa/flydpi/orchestrator/internal/profile"
+    runtimebridge "github.com/Satanpapa/flydpi/orchestrator/internal/runtime"
 )
 
-type Server struct { seq uint64; engine *diagnostic.Engine; profiles *profile.Store; history *history.Store }
+type Server struct {
+    seq uint64
+    engine *diagnostic.Engine
+    profiles *profile.Store
+    history *history.Store
+    runtime *runtimebridge.Manager
+}
+
 type Request struct { JSONRPC string `json:"jsonrpc"`; ID uint64 `json:"id"`; Method string `json:"method"`; Params json.RawMessage `json:"params,omitempty"` }
 type Response struct { JSONRPC string `json:"jsonrpc"`; ID uint64 `json:"id"`; Result interface{} `json:"result,omitempty"`; Error *RPCError `json:"error,omitempty"` }
 type RPCError struct { Code int `json:"code"`; Message string `json:"message"` }
 
-func NewServer(engine *diagnostic.Engine, profiles *profile.Store, history *history.Store) *Server { return &Server{engine: engine, profiles: profiles, history: history} }
+func NewServer(engine *diagnostic.Engine, profiles *profile.Store, history *history.Store, runtime *runtimebridge.Manager) *Server {
+    return &Server{engine: engine, profiles: profiles, history: history, runtime: runtime}
+}
 
 func (s *Server) Handle(ctx context.Context, req Request) Response {
     if req.JSONRPC != "2.0" { return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32600,"invalid request"}} }
     switch req.Method {
     case "status.get":
-        return Response{JSONRPC:"2.0", ID:req.ID, Result:map[string]interface{}{"state":"ready","sequence":atomic.LoadUint64(&s.seq)}}
+        runtimeState := map[string]interface{}{"enabled": false}
+        if s.runtime != nil { runtimeState["enabled"] = s.runtime.Enabled(); runtimeState["error"] = s.runtime.Error() }
+        return Response{JSONRPC:"2.0", ID:req.ID, Result:map[string]interface{}{"state":"ready","sequence":atomic.LoadUint64(&s.seq),"runtime":runtimeState}}
+    case "telemetry.poll":
+        limit := 32
+        var params struct { Limit int `json:"limit"` }
+        if len(req.Params) > 0 { _ = json.Unmarshal(req.Params, &params); if params.Limit > 0 { limit = params.Limit } }
+        if limit > 128 { limit = 128 }
+        var events interface{} = []runtimebridge.Event{}
+        if s.runtime != nil { events = s.runtime.Events(limit) }
+        return Response{JSONRPC:"2.0", ID:req.ID, Result:events}
     case "diagnostic.run", "probe.run":
         atomic.AddUint64(&s.seq,1)
         report := s.engine.Run(ctx)
