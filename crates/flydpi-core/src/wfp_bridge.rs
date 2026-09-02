@@ -6,7 +6,9 @@ use crate::model::Protocol;
 use crate::telemetry::{EventKind, NetworkEvent};
 
 #[cfg(windows)]
-use windows::Win32::Foundation::{FreeLibrary, HINSTANCE};
+use windows::Win32::Foundation::FreeLibrary;
+#[cfg(windows)]
+use windows::Win32::Foundation::HMODULE;
 #[cfg(windows)]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
@@ -77,7 +79,7 @@ type DroppedFn = unsafe extern "system" fn(ObserverHandle) -> u64;
 
 #[cfg(windows)]
 pub struct WfpObserverBridge {
-    module: HINSTANCE,
+    module: HMODULE,
     observer: ObserverHandle,
     stop: StopFn,
     pop: PopFn,
@@ -128,7 +130,7 @@ impl Drop for WfpObserverBridge {
     fn drop(&mut self) {
         unsafe {
             (self.stop)(self.observer);
-            let _ = FreeLibrary(self.module.into());
+            let _ = FreeLibrary(self.module);
         }
     }
 }
