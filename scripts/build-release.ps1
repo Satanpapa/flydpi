@@ -19,13 +19,15 @@ Require-Command go
 Require-Command cmake
 Require-Command windeployqt
 
-if (-not $IsWindows) { throw "FlyDPI release packaging is Windows-only." }
-
 $BuildRoot = Join-Path $Root "build"
 $UiBuild = Join-Path $BuildRoot "ui"
 $BackendOut = Join-Path $BuildRoot "flydpi-backend.exe"
 $LauncherOut = Join-Path $BuildRoot "FlyDPI.exe"
 $Dist = Join-Path $Root $OutputDir
+
+if (-not ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)) {
+    throw "FlyDPI release packaging is Windows-only."
+}
 
 if (Test-Path $Dist) { Remove-Item $Dist -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
@@ -44,7 +46,12 @@ try {
 }
 
 Write-Host "[3/5] Building launcher..."
-go build -trimpath -ldflags "-s -w" -o $LauncherOut .\launcher
+Push-Location (Join-Path $Root "launcher")
+try {
+    go build -trimpath -ldflags "-s -w" -o $LauncherOut .
+} finally {
+    Pop-Location
+}
 
 Write-Host "[4/5] Building Qt GUI..."
 cmake -S (Join-Path $Root "ui") -B $UiBuild -G "Visual Studio 17 2022" -A x64
