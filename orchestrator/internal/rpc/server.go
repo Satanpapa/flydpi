@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/json"
     "fmt"
+    "io"
     "net"
     "sync/atomic"
     "time"
@@ -67,12 +68,35 @@ func (s *Server) Handle(ctx context.Context, req Request) Response {
 }
 
 func ListenLoop(ctx context.Context, addr string, handler func(context.Context, Request) Response) error {
-    ln, err := net.Listen("tcp", addr); if err != nil { return err }
+    ln, err := net.Listen("tcp", addr)
+    if err != nil { return err }
     defer ln.Close()
+
+    tcpLn, ok := ln.(*net.TCPListener)
+    if !ok { return fmt.Errorf("listener is not TCP") }
+
     for {
-        _ = ln.(*net.TCPListener).SetDeadline(time.Now().Add(500*time.Millisecond))
-        conn, err := ln.Accept()
-        if err != nil { if ne,ok:=err.(net.Error); ok && ne.Timeout() { select { case <-ctx.Done(): return ctx.Err(); default: continue } }; return err }
-        go func(c net.Conn){ defer c.Close(); dec:=json.NewDecoder(c); enc:=json.NewEncoder(c); var req Request; if err:=dec.Decode(&req); err == nil { _=enc.Encode(handler(ctx,req)) } }(conn)
+        _ = tcpLn.SetDeadline(time.Now().Add(500 * time.Millisecond))
+        conn, err := tcpLn.Accept()
+        if err != nil {
+            if ne, ok := err.(net.Error); ok && ne.Timeout() {
+                select { case <-ctx.Done(): return ctx.Err(); default: continue }
+            }
+            return err
+        }
+
+        go func(c net.Conn) {
+            defer c.Close()
+            dec := json.NewDecoder(c)
+            enc := json.NewEncoder(c)
+            for {
+                var req Request
+                if err := dec.Decode(&req); err != nil {
+                    if err != io.EOF { _ = enc.Encode(Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32700,"invalid JSON"}}) }
+                    return
+                }
+                if err := enc.Encode(handler(ctx, req)); err != nil { return }
+            }
+        }(conn)
     }
 }
