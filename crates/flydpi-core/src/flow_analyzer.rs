@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::datapath::{FlowKey, PacketMeta};
 use crate::model::Protocol;
-use crate::transport::{QuicLongHeader, TlsClientHelloInfo, TransportInfo};
+use crate::transport::{analyze_payload, TlsClientHelloInfo, TransportInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcpLifecycle { New, SynSent, Established, FinSeen, Reset }
@@ -64,15 +64,15 @@ impl FlowSessionAnalyzer {
             }
         }
 
-        match TransportInfo::analyze_payload(packet.flow.protocol, payload) {
+        match analyze_payload(packet.flow.protocol, payload) {
             Ok(TransportInfo::TlsClientHello(TlsClientHelloInfo { sni, .. })) => {
                 signals.tls_client_hello_seen = true;
                 if sni.is_some() { signals.tls_sni = sni; }
             }
-            Ok(TransportInfo::QuicLongHeader(QuicLongHeader { version, packet_type, .. })) => {
+            Ok(TransportInfo::QuicLongHeader(info)) => {
                 signals.quic_long_header_seen = true;
-                signals.quic_version = Some(version);
-                signals.quic_packet_type = Some(packet_type);
+                signals.quic_version = Some(info.version);
+                signals.quic_packet_type = Some(info.packet_type);
             }
             Ok(TransportInfo::Unknown) | Err(_) => {}
         }
