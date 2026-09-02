@@ -12,6 +12,7 @@ import (
     "github.com/Satanpapa/flydpi/orchestrator/internal/diagnostic"
     "github.com/Satanpapa/flydpi/orchestrator/internal/history"
     "github.com/Satanpapa/flydpi/orchestrator/internal/profile"
+    runtimebridge "github.com/Satanpapa/flydpi/orchestrator/internal/runtime"
     "github.com/Satanpapa/flydpi/orchestrator/internal/rpc"
 )
 
@@ -25,7 +26,14 @@ func main() {
     historyDir := filepath.Join(filepath.Dir(base), "history")
     profiles := profile.NewStore(base)
     historyStore := history.NewStore(historyDir, 100)
-    server := rpc.NewServer(engine, profiles, historyStore)
+
+    exe, err := os.Executable()
+    if err != nil { log.Fatal(err) }
+    runtimeBase := filepath.Dir(filepath.Dir(exe))
+    runtimeManager := runtimebridge.NewManager(runtimeBase)
+    defer runtimeManager.Close()
+
+    server := rpc.NewServer(engine, profiles, historyStore, runtimeManager)
 
     log.Println("FlyDPI diagnostic orchestrator listening on 127.0.0.1:27654")
     if err := rpc.ListenLoop(ctx, "127.0.0.1:27654", server.Handle); err != nil && ctx.Err() == nil { log.Fatal(err) }
