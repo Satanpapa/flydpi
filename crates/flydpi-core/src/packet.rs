@@ -13,6 +13,7 @@ pub enum PacketParseError {
     InvalidIpv4Header,
     UnsupportedTransport,
     InvalidTransportHeader,
+    UnknownDirection,
 }
 
 pub fn parse_ipv4_transport(
@@ -43,6 +44,7 @@ pub fn parse_ipv4_transport(
     let remote_ip = match direction {
         PacketDirection::Outbound => dst_ip,
         PacketDirection::Inbound => src_ip,
+        PacketDirection::Unknown => return Err(PacketParseError::UnknownDirection),
     };
 
     match protocol {
@@ -64,10 +66,12 @@ pub fn parse_ipv4_transport(
                     remote_port: match direction {
                         PacketDirection::Outbound => dst_port,
                         PacketDirection::Inbound => src_port,
+                        PacketDirection::Unknown => unreachable!(),
                     },
                     local_port: match direction {
                         PacketDirection::Outbound => src_port,
                         PacketDirection::Inbound => dst_port,
+                        PacketDirection::Unknown => unreachable!(),
                     },
                 },
                 direction,
@@ -92,10 +96,12 @@ pub fn parse_ipv4_transport(
                     remote_port: match direction {
                         PacketDirection::Outbound => dst_port,
                         PacketDirection::Inbound => src_port,
+                        PacketDirection::Unknown => unreachable!(),
                     },
                     local_port: match direction {
                         PacketDirection::Outbound => src_port,
                         PacketDirection::Inbound => dst_port,
+                        PacketDirection::Unknown => unreachable!(),
                     },
                 },
                 direction,
@@ -140,6 +146,15 @@ mod tests {
         assert_eq!(meta.flow.remote_ip[..4], [1, 2, 3, 4]);
         assert_eq!(meta.flow.remote_port, 443);
         assert_eq!(meta.flow.local_port, 50000);
+    }
+
+    #[test]
+    fn rejects_unknown_direction() {
+        let p = tcp_packet([10, 0, 0, 2], [1, 2, 3, 4], 50000, 443);
+        assert_eq!(
+            parse_ipv4_transport(&p, PacketDirection::Unknown),
+            Err(PacketParseError::UnknownDirection)
+        );
     }
 
     #[test]
