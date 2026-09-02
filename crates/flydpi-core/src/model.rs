@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TacticId {
     FragmentationPolicy = 1,
     TlsObfuscationPolicy = 2,
@@ -19,7 +19,7 @@ pub struct FlowContext {
     pub hostname: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Protocol {
     #[default]
     Tcp,
