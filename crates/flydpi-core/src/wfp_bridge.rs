@@ -110,7 +110,7 @@ impl WfpObserverBridge {
         let mut observer = std::ptr::null_mut();
         let rc = unsafe { start(&mut observer) };
         if rc != 0 {
-            unsafe { FreeLibrary(module) };
+            unsafe { let _ = FreeLibrary(module); }
             return Err(BridgeError::StartFailed(rc));
         }
         Ok(Self { module, observer, stop, pop, dropped })
