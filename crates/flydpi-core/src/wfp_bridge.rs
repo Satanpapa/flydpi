@@ -1,7 +1,6 @@
 //! Runtime-loaded bridge from the native WFP observer into the Rust datapath.
 
 use std::ffi::{c_void, CString};
-
 use crate::datapath::{Datapath, FlowKey, PacketDirection, PacketMeta};
 use crate::model::Protocol;
 use crate::telemetry::{EventKind, NetworkEvent};
@@ -39,6 +38,7 @@ pub enum BridgeError {
     LoadFailed,
     MissingSymbol,
     StartFailed(u32),
+    WorkerStartFailed,
 }
 
 #[cfg(windows)]
@@ -73,9 +73,7 @@ impl WfpObserverBridge {
 
         let symbol = |name: &str| -> Result<*const c_void, BridgeError> {
             let name = CString::new(name).map_err(|_| BridgeError::MissingSymbol)?;
-            let ptr = unsafe {
-                GetProcAddress(module, windows::core::PCSTR(name.as_ptr() as *const u8))
-            };
+            let ptr = unsafe { GetProcAddress(module, windows::core::PCSTR(name.as_ptr() as *const u8)) };
             ptr.map(|p| p as *const c_void).ok_or(BridgeError::MissingSymbol)
         };
 
@@ -90,7 +88,6 @@ impl WfpObserverBridge {
             unsafe { FreeLibrary(module) };
             return Err(BridgeError::StartFailed(rc));
         }
-
         Ok(Self { module, observer, stop, pop, dropped })
     }
 
@@ -100,9 +97,7 @@ impl WfpObserverBridge {
         if rc == 0 { Some(snapshot) } else { None }
     }
 
-    pub fn dropped_count(&self) -> u64 {
-        unsafe { (self.dropped)(self.observer) }
-    }
+    pub fn dropped_count(&self) -> u64 { unsafe { (self.dropped)(self.observer) } }
 }
 
 #[cfg(windows)]
@@ -126,11 +121,7 @@ impl WfpObserverBridge {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SnapshotClass {
-    Transport,
-    Other,
-    Invalid,
-}
+pub enum SnapshotClass { Transport, Other, Invalid }
 
 pub fn classify_snapshot(snapshot: &WfpEventSnapshot) -> SnapshotClass {
     if snapshot.ip_version != 4 && snapshot.ip_version != 6 { return SnapshotClass::Invalid; }
