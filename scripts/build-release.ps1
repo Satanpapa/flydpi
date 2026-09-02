@@ -14,10 +14,48 @@ function Require-Command([string]$Name) {
     }
 }
 
+function Resolve-WindeployQt {
+    $fromPath = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
+    if ($fromPath) { return $fromPath.Source }
+
+    $candidates = @(
+        "$env:QT_ROOT\bin\windeployqt.exe",
+        "$env:QTDIR\bin\windeployqt.exe",
+        "$env:Qt6Dir\bin\windeployqt.exe",
+        "$env:QtDir\bin\windeployqt.exe",
+        "C:\Qt\6.10.0\msvc2022_64\bin\windeployqt.exe",
+        "C:\Qt\6.9.3\msvc2022_64\bin\windeployqt.exe",
+        "C:\Qt\6.8.3\msvc2022_64\bin\windeployqt.exe",
+        "C:\Qt\6.7.3\msvc2022_64\bin\windeployqt.exe",
+        "C:\Qt\6.6.3\msvc2022_64\bin\windeployqt.exe",
+        "C:\Qt\6.5.3\msvc2022_64\bin\windeployqt.exe"
+    )
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) { return (Resolve-Path $candidate).Path }
+    }
+
+    foreach ($root in @("C:\Qt", "$env:LOCALAPPDATA\Programs\Qt")) {
+        if (Test-Path $root) {
+            $found = Get-ChildItem $root -Filter windeployqt.exe -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\msvc2022_64\\bin\\windeployqt\.exe$' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($found) { return $found.FullName }
+        }
+    }
+
+    throw @"
+windeployqt.exe was not found.
+Install Qt 6.x MSVC 2022 x64, or add its 'bin' directory to PATH.
+The script also accepts QT_ROOT/QTDIR/Qt6Dir/QtDir pointing at the Qt root.
+"@
+}
+
 Require-Command cargo
 Require-Command go
 Require-Command cmake
-Require-Command windeployqt
+$WindeployQt = Resolve-WindeployQt
 
 $BuildRoot = Join-Path $Root "build"
 $UiBuild = Join-Path $BuildRoot "ui"
@@ -77,7 +115,7 @@ Copy-Item $ObserverDll (Join-Path $Dist "bin\flydpi_wfp_observer.dll") -Force
 Copy-Item $UiExe (Join-Path $Dist "ui\flydpi-ui.exe") -Force
 
 Write-Host "[7/7] Deploying Qt runtime..."
-windeployqt --release --qmldir (Join-Path $Root "ui\qml") (Join-Path $Dist "ui\flydpi-ui.exe")
+& $WindeployQt --release --qmldir (Join-Path $Root "ui\qml") (Join-Path $Dist "ui\flydpi-ui.exe")
 
 @'
 FlyDPI diagnostic MVP + low-level observation runtime
