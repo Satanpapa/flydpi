@@ -12,30 +12,34 @@ ApplicationWindow {
     title: "FlyDPI"
 
     Theme { id: theme }
+
     property int page: 0
     property string mode: "Auto"
     property bool running: false
     property string activeProfile: "Default"
-    property var report: rpcClient.diagnosticReport
+    property var report: rpcClient.diagnosticReport || {}
     property string diagnosisText: rpcClient.connected ? "Готов к диагностике" : "Оркестратор не запущен"
     property string detailText: "Запустите диагностику, чтобы получить фактический результат."
+    readonly property var pageNames: ["Обзор", "Диагностика", "Профили", "История", "Настройки"]
+    readonly property var navNames: ["Обзор", "Диагностика", "Профили", "История", "Настройки"]
 
+    function severity() { return String(report["severity"] || "ok") }
     function severityTone() {
-        var severity = report["severity"] || "ok"
-        if (severity === "critical") return theme.bad
-        if (severity === "warning") return theme.warn
+        if (severity() === "critical") return theme.bad
+        if (severity() === "warning") return theme.warn
         return theme.good
     }
     function severityText() {
-        var severity = report["severity"] || "ok"
-        if (severity === "critical") return "КРИТИЧНО"
-        if (severity === "warning") return "ВНИМАНИЕ"
+        if (severity() === "critical") return "КРИТИЧНО"
+        if (severity() === "warning") return "ВНИМАНИЕ"
         return report["schema_version"] ? "НОРМА" : "ГОТОВ"
     }
     function stages() { return report["stages"] || [] }
     function probes() { return report["probe_results"] || [] }
     function features() { return report["features"] || {} }
     function wfp() { return report["wfp_events"] || {} }
+    function hasRecommendation() { return String(report["severity"] || "ok") !== "ok" }
+
     function startDiagnostic() {
         if (running || !rpcClient.connected) return
         running = true
@@ -57,7 +61,7 @@ ApplicationWindow {
             }
         }
         function onDiagnosticReportChanged() {
-            window.report = rpcClient.diagnosticReport
+            window.report = rpcClient.diagnosticReport || {}
             running = false
             diagnosisText = rpcClient.diagnosticReport["title"] || "Диагностика завершена"
             detailText = rpcClient.diagnosticReport["explanation"] || "Отчёт сформирован."
@@ -104,33 +108,17 @@ ApplicationWindow {
                     }
 
                     Repeater {
-                        model: ["Обзор", "Диагностика", "Профили", "История", "Настройки"]
-
+                        model: navNames
                         delegate: Button {
                             id: navButton
                             required property string modelData
                             required property int index
+                            property int itemIndex: index
                             text: modelData
                             Layout.fillWidth: true
                             implicitHeight: 44
                             flat: true
-
-                            contentItem: Label {
-                                text: navButton.text
-                                color: navButton.index === window.page ? theme.text : theme.muted
-                                font.pixelSize: 14
-                                font.bold: navButton.index === window.page
-                                leftPadding: 12
-                                horizontalAlignment: Text.AlignLeft
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            background: Rectangle {
-                                radius: 8
-                                color: navButton.index === window.page ? theme.panelAlt : "transparent"
-                            }
-
-                            onClicked: window.page = navButton.index
+                            onClicked: window.page = itemIndex
                         }
                     }
 
@@ -142,7 +130,6 @@ ApplicationWindow {
                         radius: 10
                         color: theme.panel
                         border.color: theme.border
-
                         Column {
                             anchors.fill: parent
                             anchors.margins: 12
@@ -165,12 +152,11 @@ ApplicationWindow {
                     implicitHeight: 68
                     color: theme.bg
                     border.color: theme.border
-
                     RowLayout {
                         anchors.fill: parent
                         anchors.margins: 20
                         Label {
-                            text: ["Обзор", "Диагностика", "Профили", "История", "Настройки"][page]
+                            text: pageNames[window.page]
                             color: theme.text
                             font.pixelSize: 20
                             font.bold: true
@@ -185,6 +171,7 @@ ApplicationWindow {
                 }
 
                 StackLayout {
+                    id: pages
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     currentIndex: window.page
@@ -192,12 +179,13 @@ ApplicationWindow {
                     Flickable {
                         clip: true
                         contentWidth: width
-                        contentHeight: dashboard.implicitHeight + 40
+                        contentHeight: dashboard.implicitHeight + 56
 
                         ColumnLayout {
                             id: dashboard
-                            width: parent.width
-                            anchors.top: parent.contentItem.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
                             anchors.margins: 28
                             spacing: 18
 
@@ -207,7 +195,6 @@ ApplicationWindow {
                                 radius: theme.radius
                                 color: theme.panel
                                 border.color: theme.border
-
                                 ColumnLayout {
                                     anchors.fill: parent
                                     anchors.margins: 22
@@ -245,8 +232,8 @@ ApplicationWindow {
                                         }
                                         Item { Layout.fillWidth: true }
                                         Button {
-                                            visible: !running && report["severity"] && report["severity"] !== "ok"
-                                            text: report["recommended_action"] || "Подробнее"
+                                            visible: !running && window.hasRecommendation()
+                                            text: String(report["recommended_action"] || "Подробнее")
                                             onClicked: window.page = 1
                                         }
                                     }
@@ -275,9 +262,9 @@ ApplicationWindow {
                                                     : modelData === "Timeout" ? (features()["timeout_detected"] ? "Обнаружен" : "Не обнаружен")
                                                     : modelData === "WFP" ? String(wfp()["observed"] || 0)
                                                     : modelData === "DNS" ? (features()["poisoning_detected"] ? "Есть mismatch" : "Согласован")
-                                                    : modelData === "TCP" ? (probes().length ? probes().filter(function(x) { return x.tcp_connected }).length + "/" + probes().length : "—")
-                                                    : (probes().length ? probes().filter(function(x) { return x.tls_handshake }).length + "/" + probes().length : "—")
-                                                color: modelData === "RST" && features()["rst_detected"] ? theme.bad : modelData === "Timeout" && features()["timeout_detected"] ? theme.warn : theme.text
+                                                    : modelData === "TCP" ? (probes().length ? probes().filter(function(x) { return !!x.tcp_connected }).length + "/" + probes().length : "—")
+                                                    : (probes().length ? probes().filter(function(x) { return !!x.tls_handshake }).length + "/" + probes().length : "—")
+                                                color: theme.text
                                                 font.bold: true
                                             }
                                         }
@@ -298,7 +285,11 @@ ApplicationWindow {
                                     RowLayout {
                                         Label { text: "Live WFP events"; color: theme.text; font.bold: true }
                                         Item { Layout.fillWidth: true }
-                                        Label { text: rpcClient.runtimeEnabled ? "подключено" : "нет runtime"; color: rpcClient.runtimeEnabled ? theme.good : theme.muted; font.pixelSize: 11 }
+                                        Label {
+                                            text: rpcClient.runtimeEnabled ? "подключено" : "нет runtime"
+                                            color: rpcClient.runtimeEnabled ? theme.good : theme.muted
+                                            font.pixelSize: 11
+                                        }
                                     }
                                     ListView {
                                         Layout.fillWidth: true
@@ -306,11 +297,11 @@ ApplicationWindow {
                                         clip: true
                                         model: rpcClient.telemetry
                                         delegate: RowLayout {
-                                            width: ListView.view.width
+                                            width: ListView.view ? ListView.view.width : 0
                                             height: 28
                                             Label { text: modelData.protocol === 6 ? "TCP" : modelData.protocol === 17 ? "UDP" : "OTHER"; color: theme.accent; font.pixelSize: 11; Layout.preferredWidth: 55 }
-                                            Label { text: "port " + modelData.remote_port; color: theme.text; Layout.preferredWidth: 85 }
-                                            Label { text: "event " + modelData.kind; color: theme.muted; Layout.fillWidth: true }
+                                            Label { text: "port " + String(modelData.remote_port || 0); color: theme.text; Layout.preferredWidth: 85 }
+                                            Label { text: "event " + String(modelData.kind || 0); color: theme.muted; Layout.fillWidth: true }
                                             Label { text: modelData.error_code ? "error " + modelData.error_code : "ok"; color: modelData.error_code ? theme.bad : theme.good; font.pixelSize: 11 }
                                         }
                                     }
@@ -329,14 +320,14 @@ ApplicationWindow {
                                     spacing: 10
                                     Label { text: "Этапы проверки"; color: theme.text; font.bold: true }
                                     Repeater {
-                                        model: stages()
+                                        model: window.stages()
                                         delegate: RowLayout {
                                             required property var modelData
                                             Layout.fillWidth: true
-                                            Label { text: modelData["title"] || "Stage"; color: theme.text; Layout.fillWidth: true }
-                                            ProgressBar { from: 0; to: 100; value: modelData["progress"] || 0; Layout.preferredWidth: 150 }
+                                            Label { text: String(modelData["title"] || "Stage"); color: theme.text; Layout.fillWidth: true }
+                                            ProgressBar { from: 0; to: 100; value: Number(modelData["progress"] || 0); Layout.preferredWidth: 150 }
                                             StatusPill {
-                                                text: modelData["status"] || "pending"
+                                                text: String(modelData["status"] || "pending")
                                                 tone: modelData["status"] === "passed" ? theme.good : modelData["status"] === "failed" ? theme.bad : theme.accent
                                             }
                                         }
@@ -358,16 +349,16 @@ ApplicationWindow {
                                     ListView {
                                         Layout.fillWidth: true
                                         Layout.fillHeight: true
-                                        model: probes()
+                                        model: window.probes()
                                         clip: true
                                         delegate: RowLayout {
                                             required property var modelData
-                                            width: ListView.view.width
+                                            width: ListView.view ? ListView.view.width : 0
                                             height: 34
-                                            Label { text: modelData["target"] || "—"; color: theme.text; Layout.fillWidth: true }
+                                            Label { text: String(modelData["target"] || "—"); color: theme.text; Layout.fillWidth: true }
                                             Label { text: modelData["tcp_connected"] ? "TCP ✓" : "TCP ✕"; color: modelData["tcp_connected"] ? theme.good : theme.bad; font.pixelSize: 12 }
                                             Label { text: modelData["tls_handshake"] ? "TLS ✓" : "TLS ✕"; color: modelData["tls_handshake"] ? theme.good : theme.bad; font.pixelSize: 12 }
-                                            Label { text: modelData["error_class"] || "ok"; color: theme.muted; font.pixelSize: 11; Layout.preferredWidth: 130; elide: Text.ElideRight }
+                                            Label { text: String(modelData["error_class"] || "ok"); color: theme.muted; font.pixelSize: 11; Layout.preferredWidth: 130; elide: Text.ElideRight }
                                         }
                                     }
                                 }
@@ -381,7 +372,7 @@ ApplicationWindow {
                             anchors.margins: 28
                             spacing: 14
                             Label { text: "Диагностика"; color: theme.text; font.pixelSize: 24; font.bold: true }
-                            Label { text: report["explanation"] || "Запустите проверку сети."; color: theme.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                            Label { text: String(report["explanation"] || "Запустите проверку сети."); color: theme.muted; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                             Button { text: "Запустить полную проверку"; enabled: !running && rpcClient.connected; onClicked: startDiagnostic() }
                             Item { Layout.fillHeight: true }
                         }
@@ -396,22 +387,26 @@ ApplicationWindow {
                             Label { text: "Сохраняйте результаты для быстрого сравнения состояния сети."; color: theme.muted }
                             RowLayout {
                                 TextField { id: profileName; placeholderText: "Название профиля"; Layout.fillWidth: true }
-                                Button { text: "Сохранить"; enabled: profileName.text.length > 0; onClicked: rpcClient.saveProfile(profileName.text, report["recommended_action"] || "Ничего не менять", mode, 1500, ["example.com", "t.me", "youtube.com"]) }
+                                Button {
+                                    text: "Сохранить"
+                                    enabled: profileName.text.length > 0
+                                    onClicked: rpcClient.saveProfile(profileName.text, String(report["recommended_action"] || "Ничего не менять"), mode, 1500, ["example.com", "t.me", "youtube.com"])
+                                }
                             }
                             ListView {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 model: rpcClient.profiles
                                 delegate: Rectangle {
-                                    width: ListView.view.width
+                                    width: ListView.view ? ListView.view.width : 0
                                     height: 58
                                     color: "transparent"
                                     border.color: theme.border
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: 10
-                                        Label { text: modelData.name || "Unnamed"; color: theme.text; Layout.fillWidth: true }
-                                        Label { text: modelData.preferred_action || "—"; color: theme.muted }
+                                        Label { text: String(modelData.name || "Unnamed"); color: theme.text; Layout.fillWidth: true }
+                                        Label { text: String(modelData.preferred_action || "—"); color: theme.muted }
                                     }
                                 }
                             }
@@ -430,19 +425,19 @@ ApplicationWindow {
                                 Layout.fillHeight: true
                                 model: rpcClient.history
                                 delegate: Rectangle {
-                                    width: ListView.view.width
+                                    width: ListView.view ? ListView.view.width : 0
                                     height: 72
                                     color: "transparent"
                                     border.color: theme.border
                                     RowLayout {
                                         anchors.fill: parent
                                         anchors.margins: 10
-                                        Label { text: modelData.timestamp || ""; color: theme.muted; Layout.preferredWidth: 200 }
-                                        Label { text: modelData.severity || ""; color: modelData.severity === "critical" ? theme.bad : modelData.severity === "warning" ? theme.warn : theme.good; Layout.preferredWidth: 90 }
+                                        Label { text: String(modelData.timestamp || ""); color: theme.muted; Layout.preferredWidth: 200 }
+                                        Label { text: String(modelData.severity || ""); color: modelData.severity === "critical" ? theme.bad : modelData.severity === "warning" ? theme.warn : theme.good; Layout.preferredWidth: 90 }
                                         ColumnLayout {
                                             Layout.fillWidth: true
-                                            Label { text: modelData.title || ""; color: theme.text; font.bold: true }
-                                            Label { text: modelData.summary || ""; color: theme.muted; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            Label { text: String(modelData.title || ""); color: theme.text; font.bold: true }
+                                            Label { text: String(modelData.summary || ""); color: theme.muted; elide: Text.ElideRight; Layout.fillWidth: true }
                                         }
                                     }
                                 }
@@ -458,9 +453,18 @@ ApplicationWindow {
                             Label { text: "Настройки"; color: theme.text; font.pixelSize: 24; font.bold: true }
                             RowLayout {
                                 Label { text: "Режим"; color: theme.text; Layout.fillWidth: true }
-                                ComboBox { model: ["Auto", "Manual"]; currentIndex: mode === "Auto" ? 0 : 1; onActivated: mode = currentText }
+                                ComboBox {
+                                    model: ["Auto", "Manual"]
+                                    currentIndex: mode === "Auto" ? 0 : 1
+                                    onActivated: mode = currentText
+                                }
                             }
-                            Label { text: "Диагностика не меняет сетевой трафик автоматически."; color: theme.warn; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                            Label {
+                                text: "Диагностика не меняет сетевой трафик автоматически."
+                                color: theme.warn
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
                             Item { Layout.fillHeight: true }
                         }
                     }
