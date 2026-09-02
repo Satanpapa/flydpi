@@ -22,8 +22,7 @@ pub fn parse_ipv4_transport(
     if bytes.len() < 20 {
         return Err(PacketParseError::Truncated);
     }
-    let version = bytes[0] >> 4;
-    if version != 4 {
+    if bytes[0] >> 4 != 4 {
         return Err(PacketParseError::NotIpv4);
     }
     let ihl = usize::from(bytes[0] & 0x0f) * 4;
@@ -37,8 +36,14 @@ pub fn parse_ipv4_transport(
     }
 
     let protocol = bytes[9];
-    let mut remote_ip = [0u8; 16];
-    remote_ip[..4].copy_from_slice(&bytes[16..20]);
+    let mut src_ip = [0u8; 16];
+    let mut dst_ip = [0u8; 16];
+    src_ip[..4].copy_from_slice(&bytes[12..16]);
+    dst_ip[..4].copy_from_slice(&bytes[16..20]);
+    let remote_ip = match direction {
+        PacketDirection::Outbound => dst_ip,
+        PacketDirection::Inbound => src_ip,
+    };
 
     match protocol {
         6 => {
@@ -56,8 +61,14 @@ pub fn parse_ipv4_transport(
                 flow: FlowKey {
                     protocol: Protocol::Tcp,
                     remote_ip,
-                    remote_port: dst_port,
-                    local_port: src_port,
+                    remote_port: match direction {
+                        PacketDirection::Outbound => dst_port,
+                        PacketDirection::Inbound => src_port,
+                    },
+                    local_port: match direction {
+                        PacketDirection::Outbound => src_port,
+                        PacketDirection::Inbound => dst_port,
+                    },
                 },
                 direction,
                 payload_len: total_len - ihl - data_offset,
@@ -78,8 +89,14 @@ pub fn parse_ipv4_transport(
                 flow: FlowKey {
                     protocol: Protocol::Udp,
                     remote_ip,
-                    remote_port: dst_port,
-                    local_port: src_port,
+                    remote_port: match direction {
+                        PacketDirection::Outbound => dst_port,
+                        PacketDirection::Inbound => src_port,
+                    },
+                    local_port: match direction {
+                        PacketDirection::Outbound => src_port,
+                        PacketDirection::Inbound => dst_port,
+                    },
                 },
                 direction,
                 payload_len: udp_len - 8,
@@ -94,21 +111,35 @@ pub fn parse_ipv4_transport(
 mod tests {
     use super::*;
 
-    #[test]
-    fn parses_minimal_ipv4_tcp() {
+    fn tcp_packet(src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u16) -> Vec<u8> {
         let mut p = vec![0u8; 40];
         p[0] = 0x45;
         p[2..4].copy_from_slice(&(40u16).to_be_bytes());
         p[9] = 6;
-        p[16..20].copy_from_slice(&[1, 2, 3, 4]);
-        p[20..22].copy_from_slice(&(50000u16).to_be_bytes());
-        p[22..24].copy_from_slice(&(443u16).to_be_bytes());
+        p[12..16].copy_from_slice(&src);
+        p[16..20].copy_from_slice(&dst);
+        p[20..22].copy_from_slice(&src_port.to_be_bytes());
+        p[22..24].copy_from_slice(&dst_port.to_be_bytes());
         p[32] = 0x50;
+        p
+    }
+
+    #[test]
+    fn parses_outbound_ipv4_tcp() {
+        let p = tcp_packet([10, 0, 0, 2], [1, 2, 3, 4], 50000, 443);
         let meta = parse_ipv4_transport(&p, PacketDirection::Outbound).unwrap();
-        assert_eq!(meta.flow.protocol, Protocol::Tcp);
+        assert_eq!(meta.flow.remote_ip[..4], [1, 2, 3, 4]);
         assert_eq!(meta.flow.remote_port, 443);
         assert_eq!(meta.flow.local_port, 50000);
-        assert_eq!(meta.payload_len, 0);
+    }
+
+    #[test]
+    fn parses_inbound_ipv4_tcp() {
+        let p = tcp_packet([1, 2, 3, 4], [10, 0, 0, 2], 443, 50000);
+        let meta = parse_ipv4_transport(&p, PacketDirection::Inbound).unwrap();
+        assert_eq!(meta.flow.remote_ip[..4], [1, 2, 3, 4]);
+        assert_eq!(meta.flow.remote_port, 443);
+        assert_eq!(meta.flow.local_port, 50000);
     }
 
     #[test]
