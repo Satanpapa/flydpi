@@ -2,7 +2,7 @@
 
 Windows 10/11 local network diagnostics and WFP research framework.
 
-> **Current release status:** diagnostic MVP plus the first low-level datapath foundation. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, and track normalized flow metadata in the Rust core. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
+> **Current release status:** diagnostic MVP plus an event-driven low-level datapath foundation. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, and track normalized network events in the native/Rust pipeline. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
 
 ## Quick build on Windows
 
@@ -44,7 +44,7 @@ The launcher starts the local backend, starts the GUI, and terminates the backen
 
 ```text
 crates/flydpi-core/       Rust core + flow datapath/WFP lifecycle/telemetry
-native/wfp-observer/      Native WFP observer
+native/wfp-observer/      Native WFP event-ingest adapter
 orchestrator/             Go diagnostic backend / JSON-RPC
 launcher/                 Single-executable Windows launcher
 ui/                       Qt6/QML GUI
@@ -55,17 +55,18 @@ scripts/                  Windows build/package helpers
 
 ## Low-level datapath phase
 
-`crates/flydpi-core/src/datapath.rs` is the first implementation layer for the low-level engine. It currently provides:
+The low-level engine now has three explicit layers:
 
-- stable flow identity (`FlowKey`)
-- packet direction and normalized metadata (`PacketMeta`)
-- flow lifetime/counters (`FlowState`)
-- bounded idle-flow expiration
-- conversion of normalized packet metadata into diagnostic events
+1. **Packet normalization** — bounds-checked IPv4/TCP/UDP parsing into stable `PacketMeta` records.
+2. **Flow datapath** — stable flow identity, direction, counters, lifetime and bounded expiry.
+3. **Native WFP ingest** — asynchronous WFP net-event subscription, stable ABI snapshots, bounded FIFO queue and overflow telemetry.
 
-The datapath returns an explicit `Pass`/`Observe` action and performs no payload transformation. The Windows adapter is expected to feed this layer from a correctly selected WFP observation path without leaking kernel pointers into the Rust core.
+The native observer copies only owned scalar/byte-array data from `FWPM_NET_EVENT2`; no Windows kernel/user pointers cross into the Rust core. The queue is intentionally bounded and drops the oldest record on overflow while exposing a drop counter.
 
-See `architecture/DATAPATH_ENGINE.md` for the planned pipeline, threading, backpressure, and Windows boundary.
+See:
+
+- `architecture/DATAPATH_ENGINE.md`
+- `architecture/WFP_OBSERVABILITY.md`
 
 ## Notes
 
