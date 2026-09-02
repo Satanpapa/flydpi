@@ -2,7 +2,7 @@
 
 Windows 10/11 local network diagnostics and WFP research framework.
 
-> **Current release status:** diagnostic MVP plus a low-level observation/datapath foundation and passive transport analysis. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, track normalized flows, and pass observed WFP events through a bounded Rust ingest pipeline. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
+> **Current release status:** diagnostic MVP plus a low-level observation/datapath foundation and passive transport/flow analysis. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, track normalized flows, pass observed WFP events through a bounded Rust ingest pipeline, and expose an opaque C ABI runtime for future orchestrator integration. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
 
 ## Quick build on Windows
 
@@ -49,10 +49,14 @@ Rust WFP bridge
         |
    ingest worker
         +----> Datapath / flow table
+        |          |
+        |          +--> FlowSessionAnalyzer
         |
         +----> EventRing / diagnostics
         |
         +----> passive TLS / QUIC analysis
+        |
+        +----> opaque C ABI runtime
 ```
 
 The Rust core provides:
@@ -62,13 +66,24 @@ The Rust core provides:
 - bounded idle-flow tracking;
 - bounded WFP event ingest with overflow accounting;
 - passive TLS ClientHello/SNI inspection;
-- passive QUIC long-header/Initial identification.
+- passive QUIC long-header/Initial identification;
+- stateful TCP lifecycle signals including SYN, SYN-ACK, ACK, FIN and RST;
+- explainable flow diagnoses for reset, incomplete handshake and idle timeout suspicion;
+- a stable opaque runtime API for future Go integration.
 
-Transport analysis is read-only. It does not alter packet bytes, synthesize packets, manipulate TCP state, rewrite TLS/QUIC fields, or install network policies.
+The native WFP observer owns the Windows handles and exports a fixed-width snapshot ABI. The Rust bridge loads that observer dynamically and keeps Windows-specific types outside the core datapath. The runtime API in `native/flydpi_runtime.h` exposes only caller-owned buffers and opaque handles.
+
+## Documentation
+
+- `architecture/DATAPATH_ENGINE.md` — datapath design and invariants
+- `architecture/WFP_OBSERVABILITY.md` — Windows WFP observation boundary
+- `architecture/WFP_INGEST.md` — native-to-Rust ingest lifecycle
+- `architecture/FLOW_ANALYSIS.md` — flow/session correlation
+- `architecture/RUNTIME_ABI.md` — foreign-runtime ABI contract
 
 ## Notes
 
-The low-level engine remains observation-only. The Rust core is not yet embedded into the packaged Go backend as a production packet-processing service.
+The low-level engine remains observation-only. The packaged Go backend does not yet enable the Rust runtime automatically, and the release script still packages the currently functional diagnostic application rather than a kernel traffic-transforming product.
 
 All active changes to network policy must remain explicit, auditable, reversible, and scoped to FlyDPI-owned state.
 
