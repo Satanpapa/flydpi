@@ -1,10 +1,12 @@
-//! Bounded multi-reader-friendly event ring.
+//! Bounded diagnostic event ring.
 //!
-//! The buffer is deliberately small and bounded so malformed or excessively
-//! chatty kernel/user-mode sources cannot grow process memory without limit.
+//! Kernel/user-mode producers must never be able to grow process memory without
+//! limit. Once capacity is reached, the oldest event is discarded and the drop
+//! counter remains observable.
 
 use std::collections::VecDeque;
-use crate::telemetry::NetworkEvent;
+
+use crate::telemetry::{EventKind, NetworkEvent};
 
 #[derive(Debug)]
 pub struct EventRing {
@@ -16,7 +18,11 @@ pub struct EventRing {
 impl EventRing {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "event ring capacity must be positive");
-        Self { capacity, events: VecDeque::with_capacity(capacity), dropped: 0 }
+        Self {
+            capacity,
+            events: VecDeque::with_capacity(capacity),
+            dropped: 0,
+        }
     }
 
     pub fn push(&mut self, event: NetworkEvent) {
@@ -36,22 +42,25 @@ impl EventRing {
         self.events.drain(..take).collect()
     }
 
-    pub fn clear(&mut self) { self.events.clear(); }
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::{EventKind, NetworkEvent};
 
     fn event(n: u64) -> NetworkEvent {
         NetworkEvent {
-            timestamp_ms: n,
-            kind: EventKind::Other,
+            timestamp_unix_ms: n,
+            kind: EventKind::ConnectAttempt,
             protocol: "tcp".into(),
-            remote: "127.0.0.1:443".into(),
-            pid: 1,
-            status: 0,
+            remote_addr: "127.0.0.1".into(),
+            remote_port: 443,
+            process_id: Some(1),
+            latency_ms: None,
+            error_code: None,
         }
     }
 
@@ -63,6 +72,6 @@ mod tests {
         ring.push(event(3));
         assert_eq!(ring.len(), 2);
         assert_eq!(ring.dropped(), 1);
-        assert_eq!(ring.drain(8)[0].timestamp_ms, 2);
+        assert_eq!(ring.drain(8)[0].timestamp_unix_ms, 2);
     }
 }
