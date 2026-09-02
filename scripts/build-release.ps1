@@ -23,6 +23,7 @@ function Resolve-WindeployQt {
         "$env:QTDIR\bin\windeployqt.exe",
         "$env:Qt6Dir\bin\windeployqt.exe",
         "$env:QtDir\bin\windeployqt.exe",
+        "C:\Qt\6.11.2\msvc2022_64\bin\windeployqt.exe",
         "C:\Qt\6.10.0\msvc2022_64\bin\windeployqt.exe",
         "C:\Qt\6.9.3\msvc2022_64\bin\windeployqt.exe",
         "C:\Qt\6.8.3\msvc2022_64\bin\windeployqt.exe",
@@ -52,10 +53,39 @@ The script also accepts QT_ROOT/QTDIR/Qt6Dir/QtDir pointing at the Qt root.
 "@
 }
 
+function Resolve-QtPrefix([string]$WindeployQtPath) {
+    $binDir = Split-Path $WindeployQtPath -Parent
+    $prefix = Split-Path $binDir -Parent
+    $config = Join-Path $prefix "lib\cmake\Qt6\Qt6Config.cmake"
+    if (Test-Path $config) { return (Resolve-Path $prefix).Path }
+
+    foreach ($root in @("C:\Qt", "$env:LOCALAPPDATA\Programs\Qt")) {
+        if (Test-Path $root) {
+            $found = Get-ChildItem $root -Filter Qt6Config.cmake -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\lib\\cmake\\Qt6\\Qt6Config\.cmake$' -and $_.FullName -match 'msvc2022_64' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($found) {
+                return (Split-Path (Split-Path (Split-Path (Split-Path $found.FullName -Parent) -Parent) -Parent) -Parent)
+            }
+        }
+    }
+
+    throw @"
+Qt6Config.cmake was not found for the detected windeployqt:
+$WindeployQtPath
+Install the Qt 6 MSVC 2022 x64 development package, or set QT_ROOT to the
+Qt installation prefix containing lib\cmake\Qt6\Qt6Config.cmake.
+"@
+}
+
 Require-Command cargo
 Require-Command go
 Require-Command cmake
 $WindeployQt = Resolve-WindeployQt
+$QtPrefix = Resolve-QtPrefix $WindeployQt
+Write-Host "Using Qt prefix: $QtPrefix"
+Write-Host "Using windeployqt: $WindeployQt"
 
 $BuildRoot = Join-Path $Root "build"
 $UiBuild = Join-Path $BuildRoot "ui"
@@ -102,7 +132,11 @@ try {
 }
 
 Write-Host "[5/7] Building Qt GUI..."
-cmake -S (Join-Path $Root "ui") -B $UiBuild -G "Visual Studio 17 2022" -A x64
+$QtArgs = @(
+    "-DQt6_ROOT=$QtPrefix",
+    "-DCMAKE_PREFIX_PATH=$QtPrefix"
+)
+cmake @QtArgs -S (Join-Path $Root "ui") -B $UiBuild -G "Visual Studio 17 2022" -A x64
 cmake --build $UiBuild --config $Configuration
 $UiExe = Join-Path $UiBuild "$Configuration\flydpi-ui.exe"
 if (-not (Test-Path $UiExe)) { throw "GUI executable not found: $UiExe" }
