@@ -1,21 +1,25 @@
 mod datapath;
+mod ingest;
 mod model;
 mod native_wfp;
 mod packet;
 mod ring;
 mod telemetry;
 mod wfp;
+mod wfp_bridge;
 
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
 pub use datapath::{Datapath, DatapathAction, FlowKey, FlowState, PacketDirection, PacketMeta};
+pub use ingest::{IngestStats, IngestWorker};
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
 pub use native_wfp::NativeWfpEngine;
 pub use packet::{parse_ipv4_transport, PacketParseError};
 pub use ring::EventRing;
 pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
 pub use wfp::{FilterId, WfpState};
+pub use wfp_bridge::{classify_snapshot, feed_snapshot, snapshot_to_event, snapshot_to_meta, BridgeError, SnapshotClass, WfpEventSnapshot, WfpObserverBridge};
 
 static STATE: OnceLock<Mutex<WfpState>> = OnceLock::new();
 
