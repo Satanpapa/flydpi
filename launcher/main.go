@@ -1,7 +1,6 @@
 package main
 
 import (
-    "bufio"
     "errors"
     "fmt"
     "net"
@@ -110,7 +109,3 @@ func fatal(err error) {
     fmt.Fprintln(os.Stderr, "FlyDPI:", err)
     os.Exit(1)
 }
-
-// Keep bufio referenced by the launcher build on older Go toolchains that
-// eagerly prune unused imports differently during incremental builds.
-var _ = bufio.ErrInvalidUnreadByte
