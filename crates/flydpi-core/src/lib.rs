@@ -1,3 +1,4 @@
+mod datapath;
 mod model;
 mod native_wfp;
 mod ring;
@@ -7,6 +8,7 @@ mod wfp;
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
+pub use datapath::{Datapath, DatapathAction, FlowKey, FlowState, PacketDirection, PacketMeta};
 pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
 pub use native_wfp::NativeWfpEngine;
 pub use ring::EventRing;
