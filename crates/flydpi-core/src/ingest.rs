@@ -30,18 +30,13 @@ impl IngestWorker {
         datapath: Arc<Mutex<Datapath>>,
         events: Arc<Mutex<EventRing>>,
     ) -> Result<Self, crate::wfp_bridge::BridgeError> {
-        let probe = WfpObserverBridge::open(&dll_path)?;
-        drop(probe);
-
+        let bridge = WfpObserverBridge::open(&dll_path)?;
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
+
         let join = thread::Builder::new()
             .name("flydpi-wfp-ingest".to_owned())
             .spawn(move || {
-                let bridge = match WfpObserverBridge::open(&dll_path) {
-                    Ok(value) => value,
-                    Err(_) => return IngestStats::default(),
-                };
                 let mut stats = IngestStats::default();
 
                 while !stop_thread.load(Ordering::Acquire) {
@@ -62,9 +57,7 @@ impl IngestWorker {
                                     ring.push(event);
                                 }
                             }
-                            None => {
-                                stats.snapshots_rejected = stats.snapshots_rejected.saturating_add(1);
-                            }
+                            None => stats.snapshots_rejected = stats.snapshots_rejected.saturating_add(1),
                         }
                     }
 
@@ -77,7 +70,7 @@ impl IngestWorker {
                 stats.observer_dropped = bridge.dropped_count();
                 stats
             })
-            .expect("failed to start FlyDPI WFP ingest worker");
+            .map_err(|_| crate::wfp_bridge::BridgeError::WorkerStartFailed)?;
 
         Ok(Self { stop, join: Some(join) })
     }
