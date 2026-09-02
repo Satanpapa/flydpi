@@ -51,14 +51,13 @@ func (e *Engine) Run(ctx context.Context) DiagnosticReport {
 	for _, target := range e.cfg.Targets {
 		ctxDNS, cancel := context.WithTimeout(ctx, e.cfg.Timeout)
 		systemIPs, sysErr := net.DefaultResolver.LookupIP(ctxDNS, "ip", target)
-		dohIPs, dohErr := lookupAnyDoH(ctxDNS, doh.http, target)
+		_, dohErr := lookupAnyDoH(ctxDNS, doh.http, target)
 		cancel()
 		if sysErr == nil { dnsMap[target] = systemIPs }
 
-		// Different resolvers may legitimately return different CDN/geo-selected
-		// addresses. Treat a mismatch as suspicious only when one resolver has
-		// usable addresses and the other has none, which is a stronger signal of
-		// filtering or resolver failure and avoids false critical alarms.
+		// A DNS discrepancy is considered suspicious only when resolver
+		// availability differs. Different successful IP sets are normal for
+		// CDNs, geo-routing, and resolver policy differences.
 		if (sysErr == nil) != (dohErr == nil) {
 			dnsStageFailed = true
 		}
