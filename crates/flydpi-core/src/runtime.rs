@@ -7,12 +7,30 @@ use std::ffi::c_char;
 use std::ffi::CStr;
 use std::ptr;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use crate::datapath::Datapath;
 use crate::ingest::IngestWorker;
 use crate::ring::EventRing;
 use crate::telemetry::{EventKind, NetworkEvent};
+
+static LAST_START_ERROR: AtomicU32 = AtomicU32::new(0);
+
+fn set_start_error(code: u32) {
+    LAST_START_ERROR.store(code, Ordering::Release);
+}
+
+fn bridge_error_code(error: crate::wfp_bridge::BridgeError) -> u32 {
+    match error {
+        crate::wfp_bridge::BridgeError::UnsupportedPlatform => 1,
+        crate::wfp_bridge::BridgeError::InvalidPath => 2,
+        crate::wfp_bridge::BridgeError::LoadFailed => 3,
+        crate::wfp_bridge::BridgeError::MissingSymbol => 4,
+        crate::wfp_bridge::BridgeError::StartFailed(code) => 0x1000_0000u32.saturating_add(code),
+        crate::wfp_bridge::BridgeError::WorkerStartFailed => 5,
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -71,20 +89,35 @@ impl From<NetworkEvent> for FlyDpiRuntimeEvent {
 
 #[no_mangle]
 pub unsafe extern "C" fn flydpi_runtime_start(dll_path: *const c_char) -> *mut FlyDpiRuntime {
-    if dll_path.is_null() { return ptr::null_mut(); }
+    set_start_error(0);
+    if dll_path.is_null() {
+        set_start_error(2);
+        return ptr::null_mut();
+    }
     let path = match CStr::from_ptr(dll_path).to_str() {
         Ok(value) if !value.is_empty() => value.to_owned(),
-        _ => return ptr::null_mut(),
+        _ => {
+            set_start_error(2);
+            return ptr::null_mut();
+        }
     };
 
     let datapath = Arc::new(Mutex::new(Datapath::new()));
     let events = Arc::new(Mutex::new(EventRing::new(4096)));
     let worker = match IngestWorker::start(path, Arc::clone(&datapath), Arc::clone(&events)) {
         Ok(value) => value,
-        Err(_) => return ptr::null_mut(),
+        Err(error) => {
+            set_start_error(bridge_error_code(error));
+            return ptr::null_mut();
+        }
     };
 
     Box::into_raw(Box::new(FlyDpiRuntime { datapath, events, worker: Some(worker) }))
+}
+
+#[no_mangle]
+pub extern "C" fn flydpi_runtime_last_error_code() -> u32 {
+    LAST_START_ERROR.load(Ordering::Acquire)
 }
 
 #[no_mangle]
