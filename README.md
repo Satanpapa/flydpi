@@ -2,7 +2,7 @@
 
 Windows 10/11 local network diagnostics and WFP research framework.
 
-> **Current release status:** diagnostic MVP plus a low-level observation datapath. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, and route normalized WFP event snapshots through the Rust flow engine. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
+> **Current release status:** diagnostic MVP plus a low-level observation/datapath foundation and passive transport analysis. The application can inspect DNS/TCP/TLS behaviour and WFP telemetry, present a structured diagnosis, persist local profiles/history, track normalized flows, and pass observed WFP events through a bounded Rust ingest pipeline. Active packet transformation, censorship-evasion tactics, and kernel callout packet rewriting are not enabled in this build.
 
 ## Quick build on Windows
 
@@ -34,21 +34,41 @@ dist\FlyDPI\
 
 ## Low-level engine
 
-The Rust core now contains the first observation datapath layers:
+The current low-level pipeline is:
 
-- `datapath.rs` — stable flow identity, normalized packet metadata, counters and idle expiry;
-- `packet.rs` — bounds-checked IPv4/TCP/UDP metadata parsing;
-- `wfp_bridge.rs` — stable ABI snapshot normalization and optional runtime loading of the native WFP observer;
-- `ingest.rs` — background pump from the native WFP queue into the Rust datapath and bounded event ring;
-- `ring.rs` — bounded event buffering with observable drops.
+```text
+Windows WFP net-events
+        |
+        v
+native observer
+        |
+   bounded queue
+        |
+        v
+Rust WFP bridge
+        |
+   ingest worker
+        +----> Datapath / flow table
+        |
+        +----> EventRing / diagnostics
+        |
+        +----> passive TLS / QUIC analysis
+```
 
-The native observer uses `FwpmEngineOpen0` and `FwpmNetEventSubscribe1`, owns its WFP handles, and exports only a fixed-width snapshot ABI. The Rust side deliberately treats net-event direction as unknown instead of guessing from endpoint fields.
+The Rust core provides:
 
-See `architecture/DATAPATH_ENGINE.md` and `architecture/WFP_INGEST.md` for the dataflow and lifecycle rules.
+- stable flow identity and packet metadata;
+- bounds-checked IPv4/TCP/UDP parsing;
+- bounded idle-flow tracking;
+- bounded WFP event ingest with overflow accounting;
+- passive TLS ClientHello/SNI inspection;
+- passive QUIC long-header/Initial identification.
+
+Transport analysis is read-only. It does not alter packet bytes, synthesize packets, manipulate TCP state, rewrite TLS/QUIC fields, or install network policies.
 
 ## Notes
 
-The low-level engine remains observation-only. It does not inject, forge, split, drop, or rewrite network traffic. The Rust core is not yet embedded into the packaged Go backend as a production packet-processing service.
+The low-level engine remains observation-only. The Rust core is not yet embedded into the packaged Go backend as a production packet-processing service.
 
 All active changes to network policy must remain explicit, auditable, reversible, and scoped to FlyDPI-owned state.
 
