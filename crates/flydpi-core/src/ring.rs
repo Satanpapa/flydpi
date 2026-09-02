@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 
-use crate::telemetry::{EventKind, NetworkEvent};
+use crate::telemetry::NetworkEvent;
 
 #[derive(Debug)]
 pub struct EventRing {
@@ -25,6 +25,10 @@ impl EventRing {
         }
     }
 
+    pub fn len(&self) -> usize { self.events.len() }
+    pub fn dropped(&self) -> u64 { self.dropped }
+    pub fn is_empty(&self) -> bool { self.events.is_empty() }
+
     pub fn push(&mut self, event: NetworkEvent) {
         if self.events.len() == self.capacity {
             self.events.pop_front();
@@ -32,10 +36,6 @@ impl EventRing {
         }
         self.events.push_back(event);
     }
-
-    pub fn len(&self) -> usize { self.events.len() }
-    pub fn dropped(&self) -> u64 { self.dropped }
-    pub fn is_empty(&self) -> bool { self.events.is_empty() }
 
     pub fn drain(&mut self, max: usize) -> Vec<NetworkEvent> {
         let take = max.min(self.events.len());
@@ -50,6 +50,7 @@ impl EventRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::telemetry::EventKind;
 
     fn event(n: u64) -> NetworkEvent {
         NetworkEvent {
