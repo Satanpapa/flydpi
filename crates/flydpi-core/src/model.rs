@@ -17,6 +17,7 @@ pub struct FlowContext {
     pub remote_addr: String,
     pub remote_port: u16,
     pub hostname: Option<String>,
+    pub started_unix_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -24,6 +25,7 @@ pub enum Protocol {
     #[default]
     Tcp,
     Udp,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
