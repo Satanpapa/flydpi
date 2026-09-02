@@ -3,5 +3,6 @@
     <file>qml/Main.qml</file>
     <file>qml/Theme.qml</file>
     <file>qml/RpcClient.qml</file>
+    <file>qml/StatusPill.qml</file>
   </qresource>
 </RCC>
