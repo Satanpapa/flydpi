@@ -7,8 +7,8 @@
 #include <memory>
 #include <mutex>
 #include <rpcdce.h>
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 
 namespace {
 constexpr size_t kQueueCapacity = 4096;
