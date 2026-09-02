@@ -8,6 +8,7 @@
 #include <mutex>
 #include <rpcdce.h>
 #include <windows.h>
+#include <winsock2.h>
 
 namespace {
 constexpr size_t kQueueCapacity = 4096;
@@ -30,8 +31,9 @@ static bool has_flag(uint32_t flags, uint32_t flag) {
     return (flags & flag) != 0;
 }
 
-static void copy_ipv4(uint32_t value, uint8_t out[16]) {
-    std::memcpy(out, &value, sizeof(value));
+static void copy_ipv4_network_order(uint32_t value, uint8_t out[16]) {
+    const uint32_t network_order = htonl(value);
+    std::memcpy(out, &network_order, sizeof(network_order));
 }
 
 static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT2* event) {
@@ -50,11 +52,11 @@ static void CALLBACK on_net_event(void* context, const FWPM_NET_EVENT2* event) {
     if (has_flag(snapshot.flags, FWPM_NET_EVENT_FLAG_IP_VERSION_SET)) {
         if (snapshot.ip_version == FWP_IP_VERSION_V4) {
             if (has_flag(snapshot.flags, FWPM_NET_EVENT_FLAG_LOCAL_ADDR_SET)) {
-                copy_ipv4(event->header.localAddrV4, snapshot.local_addr);
+                copy_ipv4_network_order(event->header.localAddrV4, snapshot.local_addr);
                 snapshot.has_local_addr = 1;
             }
             if (has_flag(snapshot.flags, FWPM_NET_EVENT_FLAG_REMOTE_ADDR_SET)) {
-                copy_ipv4(event->header.remoteAddrV4, snapshot.remote_addr);
+                copy_ipv4_network_order(event->header.remoteAddrV4, snapshot.remote_addr);
                 snapshot.has_remote_addr = 1;
             }
         } else if (snapshot.ip_version == FWP_IP_VERSION_V6) {
@@ -109,7 +111,8 @@ extern "C" DWORD flydpi_wfp_observer_start(FlyDpiWfpObserver** out_observer) {
     FWPM_NET_EVENT_SUBSCRIPTION0 subscription{};
     rc = FwpmNetEventSubscribe1(observer->engine, &subscription, on_net_event, observer.get(), &observer->subscription);
     if (rc != ERROR_SUCCESS) {
-        FwpmEngineClose0(&observer->engine);
+        FwpmEngineClose0(observer->engine);
+        observer->engine = nullptr;
         return rc;
     }
 
@@ -124,7 +127,7 @@ extern "C" void flydpi_wfp_observer_stop(FlyDpiWfpObserver* observer) {
         observer->subscription = nullptr;
     }
     if (observer->engine != nullptr) {
-        FwpmEngineClose0(&observer->engine);
+        FwpmEngineClose0(observer->engine);
         observer->engine = nullptr;
     }
     delete observer;
