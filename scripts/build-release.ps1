@@ -14,6 +14,13 @@ function Require-Command([string]$Name) {
     }
 }
 
+function Invoke-NativeBuild([string]$Name, [string]$Executable, [string[]]$Arguments) {
+    & $Executable @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE."
+    }
+}
+
 function Resolve-WindeployQt {
     $fromPath = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
     if ($fromPath) { return $fromPath.Source }
@@ -106,19 +113,19 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Dist "bin") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Dist "ui") | Out-Null
 
 Write-Host "[1/7] Building Rust core runtime..."
-cargo check --workspace
-cargo build -p flydpi-core --release
+Invoke-NativeBuild "cargo check --workspace" "cargo" @("check", "--workspace")
+Invoke-NativeBuild "cargo build -p flydpi-core --release" "cargo" @("build", "-p", "flydpi-core", "--release")
 if (-not (Test-Path $CargoTarget)) { throw "Rust runtime DLL not found: $CargoTarget" }
 
 Write-Host "[2/7] Building native WFP observer..."
-cmake -S (Join-Path $Root "native\wfp-observer") -B $WfpBuild -G "Visual Studio 17 2022" -A x64
-cmake --build $WfpBuild --config $Configuration
+Invoke-NativeBuild "cmake configure WFP observer" "cmake" @("-S", (Join-Path $Root "native\wfp-observer"), "-B", $WfpBuild, "-G", "Visual Studio 17 2022", "-A", "x64")
+Invoke-NativeBuild "cmake build WFP observer" "cmake" @("--build", $WfpBuild, "--config", $Configuration)
 if (-not (Test-Path $ObserverDll)) { throw "WFP observer DLL not found: $ObserverDll" }
 
 Write-Host "[3/7] Building Go backend..."
 Push-Location (Join-Path $Root "orchestrator")
 try {
-    go build -trimpath -ldflags "-s -w" -o $BackendOut .\cmd\flydpi
+    Invoke-NativeBuild "go build backend" "go" @("build", "-trimpath", "-ldflags", "-s -w", "-o", $BackendOut, ".\cmd\flydpi")
 } finally {
     Pop-Location
 }
@@ -126,7 +133,7 @@ try {
 Write-Host "[4/7] Building launcher..."
 Push-Location (Join-Path $Root "launcher")
 try {
-    go build -trimpath -ldflags "-s -w" -o $LauncherOut .
+    Invoke-NativeBuild "go build launcher" "go" @("build", "-trimpath", "-ldflags", "-s -w", "-o", $LauncherOut, ".")
 } finally {
     Pop-Location
 }
@@ -136,8 +143,8 @@ $QtArgs = @(
     "-DQt6_ROOT=$QtPrefix",
     "-DCMAKE_PREFIX_PATH=$QtPrefix"
 )
-cmake @QtArgs -S (Join-Path $Root "ui") -B $UiBuild -G "Visual Studio 17 2022" -A x64
-cmake --build $UiBuild --config $Configuration
+Invoke-NativeBuild "cmake configure Qt GUI" "cmake" ($QtArgs + @("-S", (Join-Path $Root "ui"), "-B", $UiBuild, "-G", "Visual Studio 17 2022", "-A", "x64"))
+Invoke-NativeBuild "cmake build Qt GUI" "cmake" @("--build", $UiBuild, "--config", $Configuration)
 $UiExe = Join-Path $UiBuild "$Configuration\flydpi-ui.exe"
 if (-not (Test-Path $UiExe)) { throw "GUI executable not found: $UiExe" }
 
@@ -150,6 +157,9 @@ Copy-Item $UiExe (Join-Path $Dist "ui\flydpi-ui.exe") -Force
 
 Write-Host "[7/7] Deploying Qt runtime..."
 & $WindeployQt --release --qmldir (Join-Path $Root "ui\qml") (Join-Path $Dist "ui\flydpi-ui.exe")
+if ($LASTEXITCODE -ne 0) {
+    throw "windeployqt failed with exit code $LASTEXITCODE."
+}
 
 @'
 FlyDPI diagnostic MVP + low-level observation runtime
