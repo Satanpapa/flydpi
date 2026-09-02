@@ -1,9 +1,10 @@
-//! Transport-neutral telemetry model for the classifier.
+//! Transport-neutral telemetry model for diagnostics and flow correlation.
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventKind {
+    PacketObserved,
     ConnectAttempt,
     ConnectSuccess,
     ConnectFailure,
