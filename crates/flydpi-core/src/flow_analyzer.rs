@@ -1,23 +1,16 @@
 //! Stateful transport/session analysis over normalized flow observations.
 //!
-//! Observation-only: it correlates TCP lifecycle and transport metadata and
-//! emits explainable diagnostics. It never changes packets.
+//! Observation-only: correlates TCP lifecycle and passive TLS/QUIC metadata.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::datapath::{FlowKey, PacketMeta};
 use crate::model::Protocol;
-use crate::transport::{QuicInfo, TlsClientHelloInfo, TransportInfo};
+use crate::transport::{QuicLongHeader, TlsClientHelloInfo, TransportInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TcpLifecycle {
-    New,
-    SynSent,
-    Established,
-    FinSeen,
-    Reset,
-}
+pub enum TcpLifecycle { New, SynSent, Established, FinSeen, Reset }
 
 #[derive(Debug, Clone, Default)]
 pub struct FlowSignals {
@@ -33,32 +26,19 @@ pub struct FlowSignals {
     pub connect_latency: Option<Duration>,
     pub tls_client_hello_seen: bool,
     pub tls_sni: Option<String>,
-    pub quic_initial_seen: bool,
+    pub quic_long_header_seen: bool,
+    pub quic_version: Option<u32>,
+    pub quic_packet_type: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FlowDiagnosis {
-    HealthyTransport,
-    TcpReset,
-    TcpHandshakeIncomplete,
-    IdleTimeoutSuspected,
-    TlsClientHelloObserved,
-    QuicInitialObserved,
-    Unknown,
-}
+pub enum FlowDiagnosis { HealthyTransport, TcpReset, TcpHandshakeIncomplete, IdleTimeoutSuspected, TlsClientHelloObserved, QuicLongHeaderObserved, Unknown }
 
 #[derive(Debug, Clone)]
-pub struct FlowSnapshot {
-    pub key: FlowKey,
-    pub lifecycle: TcpLifecycle,
-    pub signals: FlowSignals,
-    pub diagnosis: FlowDiagnosis,
-}
+pub struct FlowSnapshot { pub key: FlowKey, pub lifecycle: TcpLifecycle, pub signals: FlowSignals, pub diagnosis: FlowDiagnosis }
 
 #[derive(Debug, Default)]
-pub struct FlowSessionAnalyzer {
-    flows: HashMap<FlowKey, FlowSignals>,
-}
+pub struct FlowSessionAnalyzer { flows: HashMap<FlowKey, FlowSignals> }
 
 impl FlowSessionAnalyzer {
     pub fn new() -> Self { Self::default() }
@@ -74,29 +54,27 @@ impl FlowSessionAnalyzer {
             let flags = packet.tcp_flags;
             let syn = flags & 0x02 != 0;
             let ack = flags & 0x10 != 0;
-            let fin = flags & 0x01 != 0;
-            let rst = flags & 0x04 != 0;
             if syn && !ack { signals.syn_seen = true; }
             if syn && ack { signals.syn_ack_seen = true; }
             if ack { signals.ack_seen = true; }
-            if fin { signals.fin_seen = true; }
-            if rst { signals.rst_seen = true; }
+            if flags & 0x01 != 0 { signals.fin_seen = true; }
+            if flags & 0x04 != 0 { signals.rst_seen = true; }
             if signals.connect_latency.is_none() && signals.syn_seen && signals.syn_ack_seen {
-                if let Some(first) = signals.first_seen {
-                    signals.connect_latency = now.checked_duration_since(first);
-                }
+                if let Some(first) = signals.first_seen { signals.connect_latency = now.checked_duration_since(first); }
             }
         }
 
-        match TransportInfo::inspect(packet.flow.protocol, payload) {
-            Some(TransportInfo::Tls(TlsClientHelloInfo { server_name, .. })) => {
+        match TransportInfo::analyze_payload(packet.flow.protocol, payload) {
+            Ok(TransportInfo::TlsClientHello(TlsClientHelloInfo { sni, .. })) => {
                 signals.tls_client_hello_seen = true;
-                if server_name.is_some() { signals.tls_sni = server_name; }
+                if sni.is_some() { signals.tls_sni = sni; }
             }
-            Some(TransportInfo::Quic(QuicInfo { initial, .. })) => {
-                if initial { signals.quic_initial_seen = true; }
+            Ok(TransportInfo::QuicLongHeader(QuicLongHeader { version, packet_type, .. })) => {
+                signals.quic_long_header_seen = true;
+                signals.quic_version = Some(version);
+                signals.quic_packet_type = Some(packet_type);
             }
-            Some(TransportInfo::Other) | None => {}
+            Ok(TransportInfo::Unknown) | Err(_) => {}
         }
     }
 
@@ -127,13 +105,11 @@ fn lifecycle(s: &FlowSignals) -> TcpLifecycle {
 fn diagnosis(s: &FlowSignals, state: TcpLifecycle, now: Instant, timeout: Duration) -> FlowDiagnosis {
     if s.rst_seen { return FlowDiagnosis::TcpReset; }
     if state == TcpLifecycle::SynSent {
-        if let Some(last) = s.last_seen {
-            if now.duration_since(last) >= timeout { return FlowDiagnosis::IdleTimeoutSuspected; }
-        }
+        if let Some(last) = s.last_seen { if now.duration_since(last) >= timeout { return FlowDiagnosis::IdleTimeoutSuspected; } }
         return FlowDiagnosis::TcpHandshakeIncomplete;
     }
     if s.tls_client_hello_seen { return FlowDiagnosis::TlsClientHelloObserved; }
-    if s.quic_initial_seen { return FlowDiagnosis::QuicInitialObserved; }
+    if s.quic_long_header_seen { return FlowDiagnosis::QuicLongHeaderObserved; }
     if state == TcpLifecycle::Established { return FlowDiagnosis::HealthyTransport; }
     FlowDiagnosis::Unknown
 }
@@ -143,9 +119,7 @@ mod tests {
     use super::*;
     use crate::datapath::PacketDirection;
 
-    fn key() -> FlowKey {
-        FlowKey { protocol: Protocol::Tcp, remote_ip: [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0], remote_port: 443, local_port: 50000 }
-    }
+    fn key() -> FlowKey { FlowKey { protocol: Protocol::Tcp, remote_ip: [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0], remote_port: 443, local_port: 50000 } }
 
     #[test]
     fn detects_reset() {
