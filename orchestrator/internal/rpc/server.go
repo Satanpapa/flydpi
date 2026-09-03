@@ -35,7 +35,7 @@ func (s *Server) Handle(ctx context.Context, req Request) Response {
     if req.JSONRPC != "2.0" { return Response{JSONRPC:"2.0", ID:req.ID, Error:&RPCError{-32600,"invalid request"}} }
     switch req.Method {
     case "status.get":
-        runtimeState := map[string]interface{}{"enabled": false}
+        runtimeState := map[string]interface{}{"enabled": false, "error": ""}
         if s.runtime != nil { runtimeState["enabled"] = s.runtime.Enabled(); runtimeState["error"] = s.runtime.Error() }
         return Response{JSONRPC:"2.0", ID:req.ID, Result:map[string]interface{}{"state":"ready","sequence":atomic.LoadUint64(&s.seq),"runtime":runtimeState}}
     case "telemetry.poll":
@@ -49,6 +49,24 @@ func (s *Server) Handle(ctx context.Context, req Request) Response {
     case "diagnostic.run", "probe.run":
         atomic.AddUint64(&s.seq,1)
         report := s.engine.Run(ctx)
+        if s.runtime != nil {
+            for _, event := range s.runtime.Events(128) {
+                report.WFPEvents.Observed++
+                switch event.Kind {
+                case 5:
+                    report.WFPEvents.ResetLike++
+                case 6:
+                    report.WFPEvents.TimeoutLike++
+                }
+            }
+            if report.WFPEvents.Observed == 0 && !s.runtime.Enabled() {
+                report.Stages[3].Status = diagnostic.StageFailed
+                report.Stages[3].Summary = "WFP telemetry недоступна: runtime не запущен"
+            }
+        } else {
+            report.Stages[3].Status = diagnostic.StageFailed
+            report.Stages[3].Summary = "WFP telemetry manager не инициализирован"
+        }
         _ = s.history.Add(history.Entry{Timestamp: report.FinishedAt, Severity: string(report.Severity), Title: report.Title, Summary: report.Explanation})
         return Response{JSONRPC:"2.0",ID:req.ID,Result:report}
     case "history.list":
