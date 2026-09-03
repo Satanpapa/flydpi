@@ -27,8 +27,8 @@ type Classification struct {
 	Reason          string   `json:"reason"`
 }
 
-// Classify maps observable probe symptoms to a diagnostic profile. It never
-// mutates traffic or installs networking policy.
+// Classify maps observable symptoms to a safe diagnostic profile. It never
+// mutates traffic, installs firewall policy, or applies packet transformations.
 func Classify(probes []Probe) Classification {
 	var f Features
 	for _, p := range probes {
@@ -38,12 +38,12 @@ func Classify(probes []Probe) Classification {
 
 	switch {
 	case f.RSTDetected && f.TimeoutDetected:
-		return Classification{Features: f, PreferredTactic: "fragmentation_policy", Confidence: 0.82, Reason: "reset and timeout symptoms observed"}
+		return Classification{Features: f, PreferredTactic: "correlate_rst_timeout", Confidence: 0.82, Reason: "reset and timeout symptoms observed; correlate transport and WFP telemetry"}
 	case f.RSTDetected:
-		return Classification{Features: f, PreferredTactic: "fragmentation_policy", Confidence: 0.74, Reason: "reset observed during probe"}
+		return Classification{Features: f, PreferredTactic: "repeat_tcp_matrix", Confidence: 0.74, Reason: "reset observed; repeat across targets and address families"}
 	case f.TimeoutDetected:
-		return Classification{Features: f, PreferredTactic: "diagnostic_manual", Confidence: 0.55, Reason: "timeout observed without confirmed reset"}
+		return Classification{Features: f, PreferredTactic: "repeat_timeout_matrix", Confidence: 0.55, Reason: "timeout observed without confirmed reset"}
 	default:
-		return Classification{Features: f, PreferredTactic: "none", Confidence: 0.90, Reason: "no blocking symptom observed"}
+		return Classification{Features: f, PreferredTactic: "baseline", Confidence: 0.90, Reason: "no blocking symptom observed"}
 	}
 }
