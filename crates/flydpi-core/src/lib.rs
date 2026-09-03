@@ -21,7 +21,7 @@ pub use model::{DpiFeatures, FlowContext, ProbeResult, Protocol, TacticId};
 pub use native_wfp::NativeWfpEngine;
 pub use packet::{parse_ipv4_transport, PacketParseError};
 pub use ring::EventRing;
-pub use runtime::{flydpi_runtime_drain, flydpi_runtime_poll, flydpi_runtime_sleep_hint, flydpi_runtime_start, flydpi_runtime_stop, FlyDpiRuntime, FlyDpiRuntimeEvent};
+pub use runtime::{flydpi_runtime_drain, flydpi_runtime_last_error_code, flydpi_runtime_poll, flydpi_runtime_sleep_hint, flydpi_runtime_start, flydpi_runtime_stop, FlyDpiRuntime, FlyDpiRuntimeEvent};
 pub use telemetry::{EventBuffer, EventKind, NetworkEvent};
 pub use transport::{analyze_payload, analyze_quic_header, analyze_tls_client_hello, QuicHeaderInfo, TlsClientHelloInfo, TransportInfo, TransportParseError};
 pub use wfp::{FilterId, WfpState};
@@ -46,11 +46,10 @@ pub extern "C" fn init_wfp_filter() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn apply_tactic(tactic_id: u32, handle: *mut c_void) -> i32 {
-    if handle.is_null() { return -2; }
-    if !matches!(tactic_id, 1..=5 | 99) { return -10; }
-    if state().lock().is_err() { return -4; }
-    0
+pub extern "C" fn apply_tactic(_tactic_id: u32, _handle: *mut c_void) -> i32 {
+    // Active traffic transformation is not implemented in this runtime.
+    // Do not report a false success to callers.
+    -30
 }
 
 #[no_mangle]
